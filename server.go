@@ -1,18 +1,21 @@
 package main
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"github.com/sirupsen/logrus"
 )
 
 // Server handles HTTP requests
 type Server struct {
-	db      *Database
-	router  *gin.Engine
+	db       *Database
+	router   *gin.Engine
+	server   *http.Server
 	upgrader websocket.Upgrader
 }
 
@@ -42,9 +45,12 @@ type TopicCreateRequest struct {
 }
 
 // NewServer creates a new server
-func NewServer(db *Database) *Server {
+func NewServer(db *Database, cfg ServerConfig) *Server {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+
+	// Structured logging middleware
+	r.Use(ginLogger())
 	r.Use(gin.Recovery())
 	r.Use(corsMiddleware())
 
@@ -90,7 +96,63 @@ func (s *Server) setupRoutes() {
 
 // Run starts the server
 func (s *Server) Run(addr string) error {
-	return s.router.Run(addr)
+	s.server = &http.Server{
+		Addr:    addr,
+		Handler: s.router,
+	}
+	return s.server.ListenAndServe()
+}
+
+// Shutdown gracefully shuts down the server
+func (s *Server) Shutdown(ctx context.Context) error {
+	if s.server != nil {
+		return s.server.Shutdown(ctx)
+	}
+	return nil
+}
+
+// ginLogger returns a Gin middleware for structured logging
+func ginLogger() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		start := time.Now()
+		path := c.Request.URL.Path
+		raw := c.Request.URL.RawQuery
+
+		// Process request
+		c.Next()
+
+		// Log after request
+		timestamp := time.Now()
+		latency := timestamp.Sub(start)
+
+		clientIP := c.ClientIP()
+		method := c.Request.Method
+		statusCode := c.Writer.Status()
+
+		if raw != "" {
+			path = path + "?" + raw
+		}
+
+		fields := logrus.Fields{
+			"client_ip":  clientIP,
+			"timestamp":  timestamp.Format(time.RFC3339),
+			"method":     method,
+			"path":       path,
+			"status":     statusCode,
+			"latency":    latency,
+			"user_agent": c.Request.UserAgent(),
+		}
+
+		entry := logrus.WithFields(fields)
+
+		if statusCode >= 500 {
+			entry.Error("Server error")
+		} else if statusCode >= 400 {
+			entry.Warn("Client error")
+		} else {
+			entry.Info("Request")
+		}
+	}
 }
 
 func (s *Server) healthHandler(c *gin.Context) {

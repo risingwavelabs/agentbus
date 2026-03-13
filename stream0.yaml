@@ -1,0 +1,12 @@
+# stream0 configuration file
+
+server:
+  host: 127.0.0.1
+  port: 8080
+
+database:
+  path: ./stream0.db
+
+log:
+  level: info  # debug, info, warn, error
+  format: json  # json or text
