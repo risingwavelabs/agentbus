@@ -286,4 +286,4 @@ Every message carries the same `task_id`. The main agent always knows which conv
 
 ## License
 
-Apache-2.0
+MIT
