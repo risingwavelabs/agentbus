@@ -1,274 +1,403 @@
 # Stream0
 
-The communication layer for AI agents. Every agent gets an inbox. Messages are point-to-point, grouped by task. Agents can have multi-turn conversations mid-task.
+The communication layer for AI agents.
 
-Not a message queue. Not a framework. Infrastructure for agents that need to talk to each other.
+Stream0 gives every agent an inbox. Agents send messages to each other's inboxes, grouped by task. Mid-task, an agent can ask questions and get answers before continuing — something no existing tool handles without custom plumbing.
 
-## Why
+## How it works
 
-You have two agents on different machines. Agent A needs Agent B to do work. Halfway through, Agent B has a question. Today your options are:
+Think of it like email for agents:
+- Every agent has an **inbox**
+- Messages are **point-to-point** (Agent A → Agent B)
+- Every message carries a **task_id** (like an email subject line — groups a conversation)
+- Agents can go **back and forth** (request → question → answer → done)
+- Messages **persist** — if an agent is offline, messages wait in the inbox
 
-- **Direct HTTP** — no persistence, no retry, no mid-task dialogue
-- **Kafka/SQS** — designed for microservices, not agent conversations
-- **Framework built-in** — only works inside one process
+No SDK required. It's just HTTP. If your agent can `curl`, it can use Stream0.
 
-Stream0 solves this: send a message to an agent's inbox, it persists until read, agents can go back and forth, every message is tagged with a `task_id` so the main agent always knows which conversation a response belongs to.
+## Getting started
 
-## Quick Start
+### 1. Install and run Stream0
 
 ```bash
-# Build and run
+# Clone the repo
+git clone https://github.com/risingwavelabs/stream0.git
+cd stream0
+
+# Build (requires Rust — install from https://rustup.rs)
 cargo build --release
+
+# Start the server
 ./target/release/stream0
-
-# Server runs on http://127.0.0.1:8080
 ```
 
-## 5-Minute Tutorial
+Stream0 is now running at `http://localhost:8080`. No config needed, no database to set up — it uses an embedded SQLite file.
 
-### 1. Register two agents
+Verify it's working:
+
+```bash
+curl http://localhost:8080/health
+# {"status":"healthy","version":"0.2.0-rust"}
+```
+
+### 2. Register your agents
+
+Every agent needs to register once to get an inbox:
 
 ```bash
 curl -X POST http://localhost:8080/agents \
   -H "Content-Type: application/json" \
-  -d '{"id": "main-agent"}'
-
-curl -X POST http://localhost:8080/agents \
-  -H "Content-Type: application/json" \
-  -d '{"id": "translator"}'
+  -d '{"id": "my-agent"}'
 ```
 
-### 2. Send a task
+That's it. `my-agent` now has an inbox.
+
+### 3. Send a message
 
 ```bash
-curl -X POST http://localhost:8080/agents/translator/inbox \
+curl -X POST http://localhost:8080/agents/my-agent/inbox \
   -H "Content-Type: application/json" \
   -d '{
-    "task_id": "translate-contract",
-    "from": "main-agent",
+    "task_id": "task-1",
+    "from": "another-agent",
     "type": "request",
-    "content": {"text": "Translate this contract to Japanese"}
+    "content": {"instruction": "summarize this document"}
   }'
 ```
 
-### 3. Translator reads inbox
+### 4. Read the inbox
 
 ```bash
-curl "http://localhost:8080/agents/translator/inbox?status=unread"
+curl "http://localhost:8080/agents/my-agent/inbox?status=unread"
 ```
 
-### 4. Translator asks a question (mid-task dialogue)
-
-```bash
-curl -X POST http://localhost:8080/agents/main-agent/inbox \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task_id": "translate-contract",
-    "from": "translator",
-    "type": "question",
-    "content": {"question": "Should indemnification be translated as A or B?"}
-  }'
-```
-
-### 5. Main agent answers
-
-```bash
-curl -X POST http://localhost:8080/agents/translator/inbox \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task_id": "translate-contract",
-    "from": "main-agent",
-    "type": "answer",
-    "content": {"answer": "Use B"}
-  }'
-```
-
-### 6. Translator completes
-
-```bash
-curl -X POST http://localhost:8080/agents/main-agent/inbox \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task_id": "translate-contract",
-    "from": "translator",
-    "type": "done",
-    "content": {"translated": "..."}
-  }'
-```
-
-### 7. View full conversation
-
-```bash
-curl "http://localhost:8080/tasks/translate-contract/messages"
-```
-
-Returns all 4 messages in chronological order — the complete audit trail.
-
-## API Reference
-
-### Inbox API
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/agents` | Register an agent (creates inbox). Accepts optional `aliases` array for alternate names. |
-| `DELETE` | `/agents/{id}` | Delete an agent |
-| `POST` | `/agents/{id}/inbox` | Send a message to an agent's inbox |
-| `GET` | `/agents/{id}/inbox` | Read messages from an agent's inbox |
-| `POST` | `/inbox/messages/{id}/ack` | Mark a message as read |
-| `GET` | `/tasks/{task_id}/messages` | Get full conversation history |
-
-#### Send a message
-
-```
-POST /agents/{agent_id}/inbox
+```json
 {
-  "task_id": "task-123",       // groups messages into a conversation
-  "from": "sender-agent",      // who sent this
-  "type": "request",           // request | question | answer | done | failed
-  "content": { ... }           // any JSON
+  "messages": [
+    {
+      "id": "imsg-abc123",
+      "task_id": "task-1",
+      "from": "another-agent",
+      "to": "my-agent",
+      "type": "request",
+      "content": {"instruction": "summarize this document"},
+      "status": "unread",
+      "created_at": "2026-03-18T17:00:00Z"
+    }
+  ]
 }
 ```
 
-#### Read inbox
+### 5. Acknowledge after processing
 
+```bash
+curl -X POST http://localhost:8080/inbox/messages/imsg-abc123/ack
 ```
-GET /agents/{agent_id}/inbox?status=unread&task_id=task-123&timeout=10
+
+Acked messages won't appear in future unread polls.
+
+## Production example: code review pipeline
+
+Here's a realistic scenario — a main agent coordinates a code review with a specialized reviewer agent.
+
+**Setup:**
+
+```bash
+# Register the agents
+curl -X POST http://localhost:8080/agents -H "Content-Type: application/json" \
+  -d '{"id": "orchestrator"}'
+
+curl -X POST http://localhost:8080/agents -H "Content-Type: application/json" \
+  -d '{"id": "code-reviewer", "aliases": ["reviewer"]}'
 ```
 
-- `status` — filter by `unread` or `acked` (optional)
-- `task_id` — filter by task (optional)
-- `timeout` — long-poll in seconds, 0 for immediate (optional, max 30)
+**Step 1 — Orchestrator assigns a code review:**
 
-#### Message types
+```bash
+curl -X POST http://localhost:8080/agents/code-reviewer/inbox \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_id": "review-pr-42",
+    "from": "orchestrator",
+    "type": "request",
+    "content": {
+      "pr_url": "https://github.com/acme/app/pull/42",
+      "files_changed": ["auth.rs", "config.rs"],
+      "priority": "high"
+    }
+  }'
+```
 
-| Type | Meaning |
-|------|---------|
-| `request` | Start a task |
-| `question` | Ask for clarification mid-task |
-| `answer` | Respond to a question |
-| `done` | Task completed successfully |
-| `failed` | Task failed |
+**Step 2 — Reviewer picks up the task and finds something unclear:**
+
+```bash
+# Reviewer polls inbox
+curl "http://localhost:8080/agents/code-reviewer/inbox?status=unread&task_id=review-pr-42"
+
+# Reviewer asks a clarifying question
+curl -X POST http://localhost:8080/agents/orchestrator/inbox \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_id": "review-pr-42",
+    "from": "code-reviewer",
+    "type": "question",
+    "content": {
+      "question": "auth.rs line 42 shadows a variable from outer scope. Is this intentional or a bug?",
+      "file": "auth.rs",
+      "line": 42
+    }
+  }'
+```
+
+**Step 3 — Orchestrator answers:**
+
+```bash
+curl -X POST http://localhost:8080/agents/code-reviewer/inbox \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_id": "review-pr-42",
+    "from": "orchestrator",
+    "type": "answer",
+    "content": {"answer": "Intentional — it is a test override. Safe to approve."}
+  }'
+```
+
+**Step 4 — Reviewer completes the review:**
+
+```bash
+curl -X POST http://localhost:8080/agents/orchestrator/inbox \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task_id": "review-pr-42",
+    "from": "code-reviewer",
+    "type": "done",
+    "content": {
+      "approved": true,
+      "comments": ["Variable shadow in auth.rs is intentional (confirmed)"],
+      "summary": "PR looks good. Auth changes are safe. Config changes are straightforward."
+    }
+  }'
+```
+
+**Step 5 — View the full conversation:**
+
+```bash
+curl "http://localhost:8080/tasks/review-pr-42/messages"
+```
+
+Returns all 4 messages in order: `request → question → answer → done`. This is the complete audit trail — you can see exactly what the reviewer asked, what they were told, and what they decided.
+
+**Why this matters:** Without Stream0, the reviewer would have had to guess about that variable shadow, or the orchestrator would have had to include every possible clarification upfront. Mid-task dialogue lets agents work like humans do — ask when something is unclear, then continue with the right information.
+
+## How agents should use Stream0
+
+### Pattern: Single agent checking for work
+
+```python
+import requests, time
+
+SERVER = "http://localhost:8080"
+AGENT_ID = "my-worker"
+
+# Register once at startup
+requests.post(f"{SERVER}/agents", json={"id": AGENT_ID})
+
+# Main loop: poll for work, process, acknowledge
+while True:
+    resp = requests.get(f"{SERVER}/agents/{AGENT_ID}/inbox?status=unread&timeout=10")
+    messages = resp.json()["messages"]
+
+    for msg in messages:
+        # Process the message
+        print(f"Got {msg['type']} from {msg['from']}: {msg['content']}")
+
+        # ... do your work here ...
+
+        # Acknowledge when done
+        requests.post(f"{SERVER}/inbox/messages/{msg['id']}/ack")
+```
+
+### Pattern: Main agent coordinating sub-agents
+
+```python
+import requests, uuid
+
+SERVER = "http://localhost:8080"
+
+# Register everyone
+requests.post(f"{SERVER}/agents", json={"id": "main"})
+requests.post(f"{SERVER}/agents", json={"id": "researcher"})
+requests.post(f"{SERVER}/agents", json={"id": "writer"})
+
+task_id = f"report-{uuid.uuid4().hex[:8]}"
+
+# Dispatch work to sub-agents
+requests.post(f"{SERVER}/agents/researcher/inbox", json={
+    "task_id": task_id, "from": "main", "type": "request",
+    "content": {"instruction": "find market data for AI agents"}
+})
+
+requests.post(f"{SERVER}/agents/writer/inbox", json={
+    "task_id": task_id, "from": "main", "type": "request",
+    "content": {"instruction": "write an executive summary (wait for research data)"}
+})
+
+# Poll for results
+import time
+completed = 0
+while completed < 2:
+    resp = requests.get(f"{SERVER}/agents/main/inbox?status=unread&task_id={task_id}&timeout=30")
+    for msg in resp.json()["messages"]:
+        print(f"{msg['from']} finished: {msg['type']}")
+        requests.post(f"{SERVER}/inbox/messages/{msg['id']}/ack")
+        if msg["type"] == "done":
+            completed += 1
+```
+
+### Pattern: Agent asking for help mid-task
+
+```python
+# Inside your agent's processing logic:
+def process_task(task):
+    # ... working on the task ...
+
+    if something_is_unclear:
+        # Ask the sender for clarification
+        requests.post(f"{SERVER}/agents/{task['from']}/inbox", json={
+            "task_id": task["task_id"],
+            "from": MY_AGENT_ID,
+            "type": "question",
+            "content": {"question": "Should I use approach A or B?"}
+        })
+
+        # Wait for the answer
+        while True:
+            resp = requests.get(
+                f"{SERVER}/agents/{MY_AGENT_ID}/inbox?status=unread&task_id={task['task_id']}&timeout=15"
+            )
+            answers = [m for m in resp.json()["messages"] if m["type"] == "answer"]
+            if answers:
+                answer = answers[0]
+                requests.post(f"{SERVER}/inbox/messages/{answer['id']}/ack")
+                break
+
+    # ... continue with the answer ...
+```
 
 ## Python SDK
 
+For convenience, there's a thin Python SDK:
+
 ```bash
-pip install -e sdk/python
+cd sdk/python && pip install -e .
 ```
 
 ```python
 from stream0 import Agent
 
-main = Agent("main-agent", url="http://localhost:8080")
-translator = Agent("translator", url="http://localhost:8080")
+agent = Agent("my-agent", url="http://localhost:8080", api_key="optional-key")
+agent.register()
 
-main.register()
-translator.register()
+# Send
+agent.send("other-agent", task_id="t1", msg_type="request", content={"text": "..."})
 
-# Send task
-main.send("translator", task_id="t1", msg_type="request",
-          content={"text": "translate this"})
+# Receive
+messages = agent.receive(task_id="t1")
+agent.ack(messages[0]["id"])
 
-# Translator reads, asks question, gets answer
-msgs = translator.receive(task_id="t1")
-translator.ack(msgs[0]["id"])
-translator.send("main-agent", task_id="t1", msg_type="question",
-                content={"q": "A or B?"})
-
-msgs = main.receive(task_id="t1")
-main.send("translator", task_id="t1", msg_type="answer",
-          content={"a": "use B"})
-
-# Complete
-translator.send("main-agent", task_id="t1", msg_type="done",
-                content={"result": "translated"})
-
-# Full history
-history = main.history("t1")
+# History
+history = agent.history("t1")
 ```
 
-## Configuration
+The SDK is optional — every operation is a single HTTP call. Use `curl`, `requests`, `fetch`, or any HTTP client.
 
-### Config file (YAML)
+## Agent aliases
 
-```yaml
+Agents can register alternate names so other agents don't need to know the exact ID:
+
+```bash
+curl -X POST http://localhost:8080/agents \
+  -H "Content-Type: application/json" \
+  -d '{"id": "code-review-agent-v2", "aliases": ["code-reviewer", "reviewer"]}'
+```
+
+Messages sent to any alias are delivered to the canonical inbox.
+
+## Agent presence
+
+Stream0 tracks when each agent last polled their inbox. Check who's active:
+
+```bash
+curl http://localhost:8080/agents
+```
+
+```json
+{
+  "agents": [
+    {"id": "orchestrator", "created_at": "...", "last_seen": "2026-03-18T17:15:00Z"},
+    {"id": "code-reviewer", "aliases": ["reviewer"], "created_at": "...", "last_seen": "2026-03-18T17:14:55Z"}
+  ]
+}
+```
+
+If `last_seen` is null, the agent has never polled. If it's more than a few minutes old, the agent is likely offline.
+
+## Deploying to production
+
+See [SELF_HOSTING.md](SELF_HOSTING.md) for the full deployment guide. The short version:
+
+```bash
+# Build
+cargo build --release
+
+# Create config with API key authentication
+cat > stream0.yaml << 'EOF'
 server:
   host: 0.0.0.0
   port: 8080
-
 database:
   path: /var/lib/stream0/stream0.db
-
-log:
-  level: info
-  format: json
-
 auth:
   api_keys:
-    - your-secret-key
+    - your-secret-key-here
+EOF
+
+# Run
+./target/release/stream0 --config stream0.yaml
 ```
 
-### Environment variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `STREAM0_SERVER_HOST` | Bind address | `127.0.0.1` |
-| `STREAM0_SERVER_PORT` | Port | `8080` |
-| `STREAM0_DB_PATH` | Database path | `./stream0.db` |
-| `STREAM0_LOG_LEVEL` | Log level | `info` |
-| `STREAM0_LOG_FORMAT` | Log format (`json` or `text`) | `json` |
-| `STREAM0_API_KEY` | API key for authentication | (none) |
-
-### Authentication
-
-When API keys are configured, all endpoints (except `/health`) require the `X-API-Key` header:
+With API keys enabled, all requests need the `X-API-Key` header:
 
 ```bash
-curl -H "X-API-Key: your-secret-key" http://localhost:8080/agents/my-agent/inbox
+curl -H "X-API-Key: your-secret-key-here" http://yourserver:8080/agents
 ```
 
-## Testing
+## API reference
 
-```bash
-# Python SDK unit tests (47 tests)
-cd sdk/python && pip install -e ".[dev]" && pytest tests/test_client.py -v
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/agents` | Register an agent (with optional `aliases`) |
+| `GET` | `/agents` | List all agents (includes `aliases` and `last_seen`) |
+| `DELETE` | `/agents/{id}` | Delete an agent |
+| `POST` | `/agents/{id}/inbox` | Send a message |
+| `GET` | `/agents/{id}/inbox` | Read inbox (`?status=unread&task_id=X&timeout=10`) |
+| `POST` | `/inbox/messages/{id}/ack` | Mark a message as read |
+| `GET` | `/tasks/{task_id}/messages` | Full conversation history |
+| `GET` | `/health` | Health check |
 
-# Python integration tests (25 tests, requires running server)
-STREAM0_URL=http://localhost:8080 pytest tests/test_integration.py -v
-```
+### Message types
 
-## Architecture
+| Type | When to use |
+|------|-------------|
+| `request` | Ask an agent to do work |
+| `question` | Need clarification mid-task |
+| `answer` | Reply to a question |
+| `done` | Task completed successfully |
+| `failed` | Task could not be completed |
 
-```
-Agent A                    Stream0                   Agent B
-(main)                     (Rust + SQLite)             (translator)
-  │                            │                         │
-  ├── POST /agents/B/inbox ──→ │ (persists message)      │
-  │   type: request            │                         │
-  │                            │ ←── GET /agents/B/inbox ┤
-  │                            │     (returns message)   │
-  │                            │                         │
-  │   ┌── POST /agents/A/inbox ┤ ←────────────────────── ┤
-  │   │   type: question       │                         │
-  ├───┘                        │                         │
-  │                            │                         │
-  ├── POST /agents/B/inbox ──→ │ ──────────────────────→ │
-  │   type: answer             │                         │
-  │                            │                         │
-  │   ┌── POST /agents/A/inbox ┤ ←────────────────────── ┤
-  │   │   type: done           │                         │
-  ├───┘                        │                         │
-```
+## For AI agents
 
-Every message carries the same `task_id`. The main agent always knows which conversation each response belongs to.
-
-## Design Principles
-
-- **Every agent has its own inbox.** Messages are point-to-point.
-- **HTTP-native.** No SDK required. curl works. Any language, any framework.
-- **task_id is the conversation.** Like an email subject line — groups related messages.
-- **Polling is fine.** Agents think for 30+ seconds. A few seconds of message latency is irrelevant.
-- **Idempotency is the caller's responsibility.** Stream0 persists messages and delivers at-least-once. If your agent crashes and restarts, it will re-process unacked messages. Design accordingly.
-- **Agent presence.** Stream0 tracks `last_seen` timestamps each time an agent polls its inbox. Use `GET /agents` to check which agents are online.
+If you're an AI agent reading this, see [STREAM0_SKILL.md](STREAM0_SKILL.md) — a self-contained reference with everything you need to start communicating through Stream0.
 
 ## License
 
