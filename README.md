@@ -1,422 +1,239 @@
 # Stream0
 
-The communication layer for AI agents.
+Stream0 is a communication layer for agents.
 
-Stream0 gives every agent an inbox. Agents send messages to each other's inboxes, grouped by task. Mid-task, an agent can ask questions and get answers before continuing — something no existing tool handles without custom plumbing.
+It gives each agent an inbox, and lets a task move back and forth between agents on the same thread until it is finished.
 
-## How it works
+## What Is Stream0?
 
-Think of it like email for agents:
-- Every agent has an **inbox**
-- Messages are **point-to-point** (Agent A → Agent B)
-- Every message carries a **thread_id** (like an email subject line — groups a conversation)
-- Agents can go **back and forth** (request → question → answer → done)
-- Messages **persist** — if an agent is offline, messages wait in the inbox
+Stream0 is not a model, and it is not an agent runtime.
 
-No SDK required. It's just HTTP. If your agent can `curl`, it can use Stream0.
+It is the layer that lets agents collaborate.
 
-## Getting started
+Each agent gets:
+- an identity
+- an inbox
+- a thread-based message history
 
-### 1. Install and run Stream0
+With Stream0, agents do not just send one-off messages. They move a task forward together.
 
-```bash
-# Clone the repo
-git clone https://github.com/risingwavelabs/stream0.git
-cd stream0
+## What Problem Does It Solve?
 
-# Build (requires Rust — install from https://rustup.rs)
-cargo build --release
+Calling another program over HTTP is easy.
 
-# Start the server
-./target/release/stream0
+What is hard is coordinating a task across agents:
+
+- the other side may not be online right now
+- the task may take time
+- the worker may need clarification halfway through
+- the whole exchange needs to stay tied to one task
+- you need to know whether the task finished or failed
+
+Stream0 solves this by turning agent collaboration into a simple workflow:
+
+`request → question → answer → done`
+
+Instead of thinking in terms of isolated calls, you think in terms of a task thread.
+
+## A Concrete Example
+
+The easiest way to understand Stream0 is this:
+
+- `Claude Code` is the coordinator
+- `worker.py` is a background code-review worker
+
+Claude Code receives a request to review a PR. Instead of doing everything itself, it sends the review task to `worker.py`.
+
+`worker.py` starts reviewing the code. Halfway through, it finds something unclear, so it asks a question back to Claude Code. Claude Code answers. Then `worker.py` finishes the review and returns the result.
+
+The flow looks like this:
+
+```text
+Claude Code → worker.py : request    "Review PR #42"
+worker.py → Claude Code : question   "Line 42 shadows a variable. Intentional?"
+Claude Code → worker.py : answer     "Yes, it's a test override."
+worker.py → Claude Code : done       "LGTM. Approved."
 ```
 
-Stream0 is now running at `http://localhost:8080`. No config needed, no database to set up — it uses an embedded SQLite file.
+This is the core Stream0 workflow.
 
-Verify it's working:
+It is not just "send a message." It is "hand off a task, keep the task moving, and finish it on the same thread."
 
-```bash
-curl http://localhost:8080/health
-# {"status":"healthy","version":"0.2.0-rust"}
-```
+## How It Works
 
-### 2. Register your agents
+### 1. Register both sides
 
-Every agent needs to register once to get an inbox:
+Each side registers once and gets its own inbox.
 
 ```bash
 curl -X POST http://localhost:8080/agents \
   -H "Content-Type: application/json" \
-  -d '{"id": "my-agent"}'
-```
+  -d '{"id": "claude-code"}'
 
-That's it. `my-agent` now has an inbox.
-
-### 3. Send a message
-
-```bash
-curl -X POST http://localhost:8080/agents/my-agent/inbox \
+curl -X POST http://localhost:8080/agents \
   -H "Content-Type: application/json" \
-  -d '{
-    "thread_id": "task-1",
-    "from": "another-agent",
-    "type": "request",
-    "content": {"instruction": "summarize this document"}
-  }'
+  -d '{"id": "review-worker"}'
 ```
 
-### 4. Read the inbox
+### 2. Claude Code sends a task
 
 ```bash
-curl "http://localhost:8080/agents/my-agent/inbox?status=unread"
-```
-
-```json
-{
-  "messages": [
-    {
-      "id": "imsg-abc123",
-      "thread_id": "task-1",
-      "from": "another-agent",
-      "to": "my-agent",
-      "type": "request",
-      "content": {"instruction": "summarize this document"},
-      "status": "unread",
-      "created_at": "2026-03-18T17:00:00Z"
-    }
-  ]
-}
-```
-
-### 5. Acknowledge after processing
-
-```bash
-curl -X POST http://localhost:8080/inbox/messages/imsg-abc123/ack
-```
-
-Acked messages won't appear in future unread polls.
-
-## Production example: code review pipeline
-
-Here's a realistic scenario — a main agent coordinates a code review with a specialized reviewer agent.
-
-**Setup:**
-
-```bash
-# Register the agents
-curl -X POST http://localhost:8080/agents -H "Content-Type: application/json" \
-  -d '{"id": "orchestrator"}'
-
-curl -X POST http://localhost:8080/agents -H "Content-Type: application/json" \
-  -d '{"id": "code-reviewer", "aliases": ["reviewer"]}'
-```
-
-**Step 1 — Orchestrator assigns a code review:**
-
-```bash
-curl -X POST http://localhost:8080/agents/code-reviewer/inbox \
+curl -X POST http://localhost:8080/agents/review-worker/inbox \
   -H "Content-Type: application/json" \
   -d '{
     "thread_id": "review-pr-42",
-    "from": "orchestrator",
+    "from": "claude-code",
     "type": "request",
     "content": {
-      "pr_url": "https://github.com/acme/app/pull/42",
-      "files_changed": ["auth.rs", "config.rs"],
-      "priority": "high"
+      "instruction": "Review this PR",
+      "pr_url": "https://github.com/acme/app/pull/42"
     }
   }'
 ```
 
-**Step 2 — Reviewer picks up the task and finds something unclear:**
+The message includes who it is for, who sent it, the task content, and a `thread_id`.
+
+### 3. worker.py processes the task
+
+worker.py polls its inbox, picks up the request, and starts work.
 
 ```bash
-# Reviewer polls inbox
-curl "http://localhost:8080/agents/code-reviewer/inbox?status=unread&thread_id=review-pr-42"
+curl "http://localhost:8080/agents/review-worker/inbox?status=unread"
+```
 
-# Reviewer asks a clarifying question
-curl -X POST http://localhost:8080/agents/orchestrator/inbox \
+At that point it can do one of three things:
+
+- send `done` if the task is complete
+- send `failed` if it cannot complete the task
+- send `question` if it needs clarification
+
+### 4. worker.py asks a question
+
+```bash
+curl -X POST http://localhost:8080/agents/claude-code/inbox \
   -H "Content-Type: application/json" \
   -d '{
     "thread_id": "review-pr-42",
-    "from": "code-reviewer",
+    "from": "review-worker",
     "type": "question",
     "content": {
-      "question": "auth.rs line 42 shadows a variable from outer scope. Is this intentional or a bug?",
-      "file": "auth.rs",
-      "line": 42
+      "question": "Is the shadowed variable in auth.rs intentional?"
     }
   }'
 ```
 
-**Step 3 — Orchestrator answers:**
+### 5. Claude Code answers
 
 ```bash
-curl -X POST http://localhost:8080/agents/code-reviewer/inbox \
+curl -X POST http://localhost:8080/agents/review-worker/inbox \
   -H "Content-Type: application/json" \
   -d '{
     "thread_id": "review-pr-42",
-    "from": "orchestrator",
+    "from": "claude-code",
     "type": "answer",
-    "content": {"answer": "Intentional — it is a test override. Safe to approve."}
+    "content": {"answer": "Intentional — it is a test override."}
   }'
 ```
 
-**Step 4 — Reviewer completes the review:**
+### 6. worker.py completes the task
 
 ```bash
-curl -X POST http://localhost:8080/agents/orchestrator/inbox \
+curl -X POST http://localhost:8080/agents/claude-code/inbox \
   -H "Content-Type: application/json" \
   -d '{
     "thread_id": "review-pr-42",
-    "from": "code-reviewer",
+    "from": "review-worker",
     "type": "done",
     "content": {
       "approved": true,
-      "comments": ["Variable shadow in auth.rs is intentional (confirmed)"],
-      "summary": "PR looks good. Auth changes are safe. Config changes are straightforward."
+      "summary": "Review complete. Variable shadow is intentional."
     }
   }'
 ```
 
-**Step 5 — View the full conversation:**
+### 7. View the full thread
 
 ```bash
 curl "http://localhost:8080/threads/review-pr-42/messages"
 ```
 
-Returns all 4 messages in order: `request → question → answer → done`. This is the complete audit trail — you can see exactly what the reviewer asked, what they were told, and what they decided.
+Returns all 4 messages in order: `request → question → answer → done`.
 
-**Why this matters:** Without Stream0, the reviewer would have had to guess about that variable shadow, or the orchestrator would have had to include every possible clarification upfront. Mid-task dialogue lets agents work like humans do — ask when something is unclear, then continue with the right information.
+That is the basic Stream0 pattern. The thread keeps moving until it reaches `done` or `failed`.
 
-## How agents should use Stream0
+## Why Not Just Use HTTP?
 
-### Pattern: Single agent checking for work
+Because the real problem is usually not "how do I make one request?"
 
-```python
-import requests, time
+The real problem is:
 
-SERVER = "http://localhost:8080"
-AGENT_ID = "my-worker"
+- how do I hand work to another agent
+- let it process later if needed
+- let it ask questions midway
+- keep the whole exchange tied to one task
+- get a clear final result
 
-# Register once at startup
-requests.post(f"{SERVER}/agents", json={"id": AGENT_ID})
+HTTP is great for direct request/response. Stream0 is for task-oriented agent coordination.
 
-# Main loop: poll for work, process, acknowledge
-while True:
-    resp = requests.get(f"{SERVER}/agents/{AGENT_ID}/inbox?status=unread&timeout=10")
-    messages = resp.json()["messages"]
+## Inbox Is Not Execution
 
-    for msg in messages:
-        # Process the message
-        print(f"Got {msg['type']} from {msg['from']}: {msg['content']}")
+Registering an agent in Stream0 gives it an inbox. It does not automatically make that agent run.
 
-        # ... do your work here ...
+For an agent to actually process incoming work, you still need some activation mechanism:
 
-        # Acknowledge when done
-        requests.post(f"{SERVER}/inbox/messages/{msg['id']}/ack")
-```
+- a [Channel integration](docs/tutorial-channel.md) (recommended for Claude Code)
+- a [polling loop](mcp/worker.py) (for background workers)
+- a webhook
+- an external scheduler
 
-### Pattern: Main agent coordinating sub-agents
+## Claude Code Channel Integration
 
-```python
-import requests, uuid
+The recommended way to connect Claude Code to Stream0 is through a Channel plugin. With a Channel, messages sent to your Claude Code's inbox automatically appear in your session. You do not need to poll or check manually.
 
-SERVER = "http://localhost:8080"
-
-# Register everyone
-requests.post(f"{SERVER}/agents", json={"id": "main"})
-requests.post(f"{SERVER}/agents", json={"id": "researcher"})
-requests.post(f"{SERVER}/agents", json={"id": "writer"})
-
-thread_id = f"report-{uuid.uuid4().hex[:8]}"
-
-# Dispatch work to sub-agents
-requests.post(f"{SERVER}/agents/researcher/inbox", json={
-    "thread_id": thread_id, "from": "main", "type": "request",
-    "content": {"instruction": "find market data for AI agents"}
-})
-
-requests.post(f"{SERVER}/agents/writer/inbox", json={
-    "thread_id": thread_id, "from": "main", "type": "request",
-    "content": {"instruction": "write an executive summary (wait for research data)"}
-})
-
-# Poll for results
-import time
-completed = 0
-while completed < 2:
-    resp = requests.get(f"{SERVER}/agents/main/inbox?status=unread&thread_id={thread_id}&timeout=30")
-    for msg in resp.json()["messages"]:
-        print(f"{msg['from']} finished: {msg['type']}")
-        requests.post(f"{SERVER}/inbox/messages/{msg['id']}/ack")
-        if msg["type"] == "done":
-            completed += 1
-```
-
-### Pattern: Agent asking for help mid-task
-
-```python
-# Inside your agent's processing logic:
-def process_task(task):
-    # ... working on the task ...
-
-    if something_is_unclear:
-        # Ask the sender for clarification
-        requests.post(f"{SERVER}/agents/{task['from']}/inbox", json={
-            "thread_id": task["thread_id"],
-            "from": MY_AGENT_ID,
-            "type": "question",
-            "content": {"question": "Should I use approach A or B?"}
-        })
-
-        # Wait for the answer
-        while True:
-            resp = requests.get(
-                f"{SERVER}/agents/{MY_AGENT_ID}/inbox?status=unread&thread_id={task['thread_id']}&timeout=15"
-            )
-            answers = [m for m in resp.json()["messages"] if m["type"] == "answer"]
-            if answers:
-                answer = answers[0]
-                requests.post(f"{SERVER}/inbox/messages/{answer['id']}/ack")
-                break
-
-    # ... continue with the answer ...
-```
-
-## Python SDK
-
-For convenience, there's a thin Python SDK:
+See the [Channel tutorial](docs/tutorial-channel.md) for the full setup guide.
 
 ```bash
-cd sdk/python && pip install -e .
+# Start Claude Code with Stream0 channel
+claude --channels server:stream0-channel
 ```
 
-```python
-from stream0 import Agent
+From that moment, any agent can send tasks to your Claude Code and it will receive them automatically.
 
-agent = Agent("my-agent", url="http://localhost:8080", api_key="optional-key")
-agent.register()
+## Quick Start
 
-# Send
-agent.send("other-agent", thread_id="t1", msg_type="request", content={"text": "..."})
-
-# Receive
-messages = agent.receive(thread_id="t1")
-agent.ack(messages[0]["id"])
-
-# History
-history = agent.history("t1")
-```
-
-The SDK is optional — every operation is a single HTTP call. Use `curl`, `requests`, `fetch`, or any HTTP client.
-
-## Agent aliases
-
-Agents can register alternate names so other agents don't need to know the exact ID:
+### Start Stream0
 
 ```bash
-curl -X POST http://localhost:8080/agents \
-  -H "Content-Type: application/json" \
-  -d '{"id": "code-review-agent-v2", "aliases": ["code-reviewer", "reviewer"]}'
-```
-
-Messages sent to any alias are delivered to the canonical inbox.
-
-## Agent presence
-
-Stream0 tracks when each agent last polled their inbox. Check who's active:
-
-```bash
-curl http://localhost:8080/agents
-```
-
-```json
-{
-  "agents": [
-    {"id": "orchestrator", "created_at": "...", "last_seen": "2026-03-18T17:15:00Z"},
-    {"id": "code-reviewer", "aliases": ["reviewer"], "created_at": "...", "last_seen": "2026-03-18T17:14:55Z"}
-  ]
-}
-```
-
-If `last_seen` is null, the agent has never polled. If it's more than a few minutes old, the agent is likely offline.
-
-## Webhooks
-
-Instead of polling, agents can register a webhook URL to get push notifications when messages arrive:
-
-```bash
-curl -X POST http://localhost:8080/agents \
-  -H "Content-Type: application/json" \
-  -d '{"id": "my-agent", "webhook": "https://example.com/notify"}'
-```
-
-When a message lands in that agent's inbox, Stream0 POSTs a notification to the webhook:
-
-```json
-{
-  "event": "new_message",
-  "agent_id": "my-agent",
-  "message_id": "imsg-abc123",
-  "thread_id": "task-1",
-  "from": "other-agent",
-  "type": "request"
-}
-```
-
-The webhook call is fire-and-forget (10-second timeout). If it fails, the message is still safe in the inbox. Agents can use polling as a fallback.
-
-## Deploying to production
-
-See [SELF_HOSTING.md](SELF_HOSTING.md) for the full deployment guide. The short version:
-
-```bash
-# Build
 cargo build --release
-
-# Create config with API key authentication
-cat > stream0.yaml << 'EOF'
-server:
-  host: 0.0.0.0
-  port: 8080
-database:
-  path: /var/lib/stream0/stream0.db
-auth:
-  api_keys:
-    - your-secret-key-here
-EOF
-
-# Run
-./target/release/stream0 --config stream0.yaml
+./target/release/stream0
 ```
 
-With API keys enabled, all requests need the `X-API-Key` header:
+By default, Stream0 runs on `http://localhost:8080`.
+
+### Run the demo
 
 ```bash
-curl -H "X-API-Key: your-secret-key-here" http://yourserver:8080/agents
+./demo.sh
 ```
 
-### Multi-tenancy
+The demo registers two agents, walks through a complete code review with a mid-task question, and shows the full conversation history.
 
-Multiple teams can share one Stream0 instance with full data isolation:
+## Message Types
 
-```yaml
-auth:
-  tenants:
-    - name: "team-alpha"
-      api_keys: ["sk-alpha-xxx"]
-    - name: "team-beta"
-      api_keys: ["sk-beta-yyy"]
-```
+| Type | Purpose |
+|------|---------|
+| `request` | Ask an agent to do work |
+| `question` | Need clarification mid-task |
+| `answer` | Reply to a question |
+| `done` | Task completed successfully |
+| `failed` | Task could not be completed |
+| `message` | General-purpose message |
 
-Each team's agents and messages are completely invisible to the other. Both teams can register an agent called `translator` without conflict.
-
-## API reference
+## API Reference
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/agents` | Register an agent (with optional `aliases`) |
+| `POST` | `/agents` | Register an agent (with optional `aliases` and `webhook`) |
 | `GET` | `/agents` | List all agents (includes `aliases` and `last_seen`) |
 | `DELETE` | `/agents/{id}` | Delete an agent |
 | `POST` | `/agents/{id}/inbox` | Send a message |
@@ -425,20 +242,20 @@ Each team's agents and messages are completely invisible to the other. Both team
 | `GET` | `/threads/{thread_id}/messages` | Full conversation history |
 | `GET` | `/health` | Health check |
 
-### Message types
+## Deploying to Production
 
-| Type | When to use |
-|------|-------------|
-| `request` | Ask an agent to do work |
-| `question` | Need clarification mid-task |
-| `answer` | Reply to a question |
-| `done` | Task completed successfully |
-| `failed` | Task could not be completed |
-| `message` | General-purpose message |
+See [SELF_HOSTING.md](SELF_HOSTING.md) for the full guide. The short version:
 
-## For AI agents
+```bash
+cargo build --release
+./target/release/stream0 --config stream0.yaml
+```
 
-If you're an AI agent reading this, see [STREAM0_SKILL.md](STREAM0_SKILL.md) — a self-contained reference with everything you need to start communicating through Stream0.
+Stream0 supports API key authentication and multi-tenant isolation. Multiple teams can share one instance without seeing each other's data.
+
+## For AI Agents
+
+If you are an AI agent reading this, see [STREAM0_SKILL.md](STREAM0_SKILL.md) — a self-contained reference with everything you need to start communicating through Stream0.
 
 ## License
 
