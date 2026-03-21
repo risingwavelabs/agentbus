@@ -688,17 +688,18 @@ async fn cmd_agent_start(name: &str, description: &str, url: &str) {
         format!("You are '{}', a worker agent on Stream0. {}. Wait for incoming tasks from other agents. When you receive a task via the channel, do the work using your tools, then reply with the result. Stay focused on your specialty.", name, description)
     };
 
-    // Launch Claude Code
+    // Launch Claude Code with channel support.
+    // --mcp-config loads the MCP server, --dangerously-load-development-channels
+    // activates it as a channel so it can push messages into the session.
     let mut cmd = std::process::Command::new("claude");
     cmd.arg("--mcp-config")
         .arg(&mcp_config_path)
+        .arg("--dangerously-load-development-channels")
+        .arg("server:stream0-channel")
         .arg("--system-prompt")
         .arg(&system_prompt)
         .arg("--allowedTools")
-        .arg("mcp__stream0-channel__reply,mcp__stream0-channel__ack,Read,Glob,Grep,Bash,Edit,Write");
-
-    // Always run interactively so the agent stays alive to handle tasks.
-    // The MCP channel pushes incoming messages into the session.
+        .arg("mcp__stream0-channel__reply,mcp__stream0-channel__ack,mcp__stream0-channel__discover,mcp__stream0-channel__delegate,Read,Glob,Grep,Bash,Edit,Write");
 
     match cmd.status() {
         Ok(status) => std::process::exit(status.code().unwrap_or(0)),
@@ -756,8 +757,9 @@ async fn cmd_connect(url: &str, name: Option<&str>) {
         let config = mcp_config_json(url, &api_key, &agent_id);
         std::fs::write(mcp_file, serde_json::to_string_pretty(&config).unwrap())
             .expect("failed to write .mcp.json");
-        println!("Stream0 connected to Claude Code");
         println!("Config written to .mcp.json");
+        println!("\nStart Claude Code with:");
+        println!("  claude --dangerously-load-development-channels server:stream0-channel");
     }
 
     // Show available agents

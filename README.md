@@ -88,10 +88,10 @@ This writes a `.mcp.json` file in the current directory. When Claude Code starts
 
 ### 4. Try it
 
-Start Claude Code in the same directory:
+Start Claude Code in the same directory with the channel enabled:
 
 ```bash
-claude
+claude --dangerously-load-development-channels server:stream0-channel
 ```
 
 Then tell it to talk to the other agent:
