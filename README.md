@@ -1,203 +1,118 @@
 # Stream0
 
-Stream0 is a communication layer for agents.
+Stream0 is a messaging layer for agents.
 
-It gives each agent an inbox, and lets a task move back and forth between agents on the same thread until it is finished.
+It gives each agent an inbox and a thread-based message history, so one agent can delegate work to other agents, continue the discussion on the same task thread, and gather results back into one place.
 
 ## What Is Stream0?
 
-Stream0 is not a model, and it is not an agent runtime.
+Stream0 is not a model, and it is not an agent runtime. It is the transport layer behind multi-agent workflows.
 
-It is the layer that lets agents collaborate.
+Use it when one agent needs to work with other agents on the same task:
 
-Each agent gets:
-- an identity
-- an inbox
-- a thread-based message history
-
-With Stream0, agents do not just send one-off messages. They move a task forward together.
+- delegate subtasks
+- split work across specialists
+- discuss an intermediate result
+- ask follow-up questions
+- collect final outcomes on one thread
 
 ## What Problem Does It Solve?
 
-Calling another program over HTTP is easy.
+Calling another program over HTTP is easy. Coordinating work across multiple agents is harder.
 
-What is hard is coordinating a task across agents:
+Once more than one agent is involved in the same task, the coordination itself becomes a problem:
 
-- the other side may not be online right now
-- the task may take time
-- the worker may need clarification halfway through
-- the whole exchange needs to stay tied to one task
-- you need to know whether the task finished or failed
+- one agent needs to hand work to another
+- one task needs to be split across multiple agents
+- a worker may need clarification before it can continue
+- intermediate discussion needs to stay attached to the task
+- results need to come back to the original requester
+- the whole exchange needs a clear terminal state
 
-Stream0 solves this by turning agent collaboration into a simple workflow:
+Stream0 keeps that workflow simple:
 
-`request → question → answer → done`
+- each agent has an inbox
+- each task has a `thread_id`
+- messages stay attached to that thread
+- the task progresses through typed messages such as `request`, `question`, `answer`, `done`, and `failed`
 
-Instead of thinking in terms of isolated calls, you think in terms of a task thread.
+The point is not just to move one message. The point is to keep one task moving until it is finished.
 
 ## A Concrete Example
 
-The easiest way to understand Stream0 is this:
+The simplest useful mental model is:
 
-- `Claude Code` is the coordinator
-- `worker.py` is a background code-review worker
+- a user talks to one primary agent
+- that primary agent uses Stream0 behind the scenes
+- specialist agents do part of the work and report back
+- the user gets one final result
 
-Claude Code receives a request to review a PR. Instead of doing everything itself, it sends the review task to `worker.py`.
+For example:
 
-`worker.py` starts reviewing the code. Halfway through, it finds something unclear, so it asks a question back to Claude Code. Claude Code answers. Then `worker.py` finishes the review and returns the result.
+- the user asks a primary agent to write a recommendation memo
+- the primary agent asks a research worker for market context
+- the primary agent asks a critic worker to challenge the positioning
+- the critic worker asks a clarification question
+- the primary agent answers
+- both workers return results
+- the primary agent gives one final recommendation back to the user
 
 The flow looks like this:
 
 ```text
-Claude Code → worker.py : request    "Review PR #42"
-worker.py → Claude Code : question   "Line 42 shadows a variable. Intentional?"
-Claude Code → worker.py : answer     "Yes, it's a test override."
-worker.py → Claude Code : done       "LGTM. Approved."
+User → primary-agent           : "Write a recommendation memo"
+primary-agent → research-worker: request
+primary-agent → critic-worker  : request
+critic-worker → primary-agent  : question
+primary-agent → critic-worker  : answer
+research-worker → primary-agent: done
+critic-worker → primary-agent  : done
+primary-agent → User           : final result
 ```
 
-This is the core Stream0 workflow.
+That is the core Stream0 pattern: the user talks to one agent, and that agent coordinates other agents automatically through a shared task thread.
 
-It is not just "send a message." It is "hand off a task, keep the task moving, and finish it on the same thread."
+## Typical Use Cases
 
-## How It Works
+- **Delegation**: one agent hands a task to another and waits for the result
+- **Parallel subtasks**: one agent fans work out to multiple specialist agents and gathers outputs
+- **Discussion**: agents compare alternatives or challenge assumptions before proceeding
+- **Clarification loops**: a worker asks follow-up questions on the same task thread
+- **Interactive + background coordination**: an interactive agent stays in the loop while background workers handle longer-running work
 
-### 1. Register both sides
+## What Stream0 Provides
 
-Each side registers once and gets its own inbox.
+- agent addressing
+- inbox persistence
+- thread-scoped task history
+- typed task-state messages
 
-```bash
-curl -X POST http://localhost:8080/agents \
-  -H "Content-Type: application/json" \
-  -d '{"id": "claude-code"}'
+## What Stream0 Does Not Provide
 
-curl -X POST http://localhost:8080/agents \
-  -H "Content-Type: application/json" \
-  -d '{"id": "review-worker"}'
-```
+Stream0 is not an orchestration engine and not an execution runtime.
 
-### 2. Claude Code sends a task
+It does not:
 
-```bash
-curl -X POST http://localhost:8080/agents/review-worker/inbox \
-  -H "Content-Type: application/json" \
-  -d '{
-    "thread_id": "review-pr-42",
-    "from": "claude-code",
-    "type": "request",
-    "content": {
-      "instruction": "Review this PR",
-      "pr_url": "https://github.com/acme/app/pull/42"
-    }
-  }'
-```
+- execute your model
+- decide which agents to call
+- schedule your worker
+- manage tools or memory
+- replace direct RPC for simple synchronous calls
 
-The message includes who it is for, who sent it, the task content, and a `thread_id`.
-
-### 3. worker.py processes the task
-
-worker.py polls its inbox, picks up the request, and starts work.
-
-```bash
-curl "http://localhost:8080/agents/review-worker/inbox?status=unread"
-```
-
-At that point it can do one of three things:
-
-- send `done` if the task is complete
-- send `failed` if it cannot complete the task
-- send `question` if it needs clarification
-
-### 4. worker.py asks a question
-
-```bash
-curl -X POST http://localhost:8080/agents/claude-code/inbox \
-  -H "Content-Type: application/json" \
-  -d '{
-    "thread_id": "review-pr-42",
-    "from": "review-worker",
-    "type": "question",
-    "content": {
-      "question": "Is the shadowed variable in auth.rs intentional?"
-    }
-  }'
-```
-
-### 5. Claude Code answers
-
-```bash
-curl -X POST http://localhost:8080/agents/review-worker/inbox \
-  -H "Content-Type: application/json" \
-  -d '{
-    "thread_id": "review-pr-42",
-    "from": "claude-code",
-    "type": "answer",
-    "content": {"answer": "Intentional — it is a test override."}
-  }'
-```
-
-### 6. worker.py completes the task
-
-```bash
-curl -X POST http://localhost:8080/agents/claude-code/inbox \
-  -H "Content-Type: application/json" \
-  -d '{
-    "thread_id": "review-pr-42",
-    "from": "review-worker",
-    "type": "done",
-    "content": {
-      "approved": true,
-      "summary": "Review complete. Variable shadow is intentional."
-    }
-  }'
-```
-
-### 7. View the full thread
-
-```bash
-curl "http://localhost:8080/threads/review-pr-42/messages"
-```
-
-Returns all 4 messages in order: `request → question → answer → done`.
-
-That is the basic Stream0 pattern. The thread keeps moving until it reaches `done` or `failed`.
-
-## Why Not Just Use HTTP?
-
-Because the real problem is usually not "how do I make one request?"
-
-The real problem is:
-
-- how do I hand work to another agent
-- let it process later if needed
-- let it ask questions midway
-- keep the whole exchange tied to one task
-- get a clear final result
-
-HTTP is great for direct request/response. Stream0 is for task-oriented agent coordination.
+Those decisions still belong to your primary agent or your application logic. Stream0 provides the messaging primitives underneath.
 
 ## Inbox Is Not Execution
 
 Registering an agent in Stream0 gives it an inbox. It does not automatically make that agent run.
 
-For an agent to actually process incoming work, you still need some activation mechanism:
+To process messages automatically, you still need an activation mechanism:
 
-- a [Channel integration](docs/tutorial-channel.md) (recommended for Claude Code)
-- a [polling loop](mcp/worker.py) (for background workers)
+- a polling worker loop
 - a webhook
+- a [Channel integration](docs/tutorial-channel.md)
 - an external scheduler
 
-## Claude Code Channel Integration
-
-The recommended way to connect Claude Code to Stream0 is through a Channel plugin. With a Channel, messages sent to your Claude Code's inbox automatically appear in your session. You do not need to poll or check manually.
-
-See the [Channel tutorial](docs/tutorial-channel.md) for the full setup guide.
-
-```bash
-# Start Claude Code with Stream0 channel
-claude --channels server:stream0-channel
-```
-
-From that moment, any agent can send tasks to your Claude Code and it will receive them automatically.
+This is intentional. Stream0 handles message delivery and thread history. Your agents still decide when and how to act.
 
 ## Quick Start
 
@@ -205,18 +120,110 @@ From that moment, any agent can send tasks to your Claude Code and it will recei
 
 ```bash
 cargo build --release
-./target/release/stream0
+STREAM0_DB_PATH=/tmp/stream0-demo.db ./target/release/stream0
 ```
 
-By default, Stream0 runs on `http://localhost:8080`.
+### Verify the server is up
 
-### Run the demo
+```bash
+curl http://localhost:8080/health
+```
+
+Expected response:
+
+```json
+{"status":"healthy","version":"0.2.0-rust"}
+```
+
+### Run the auto-coordination demo
 
 ```bash
 ./demo.sh
 ```
 
-The demo registers two agents, walks through a complete code review with a mid-task question, and shows the full conversation history.
+The demo shows the full pattern:
+
+- the user gives one goal to a primary agent
+- the primary agent fans the work out to two specialist workers
+- one worker asks a clarification question
+- both workers return `done`
+- the primary agent returns one final result to the user
+- the full thread history is printed at the end
+
+## How It Works
+
+### 1. Register agents
+
+Each participating agent registers once and gets an inbox.
+
+```bash
+curl -X POST http://localhost:8080/agents \
+  -H "Content-Type: application/json" \
+  -d '{"id": "primary-agent"}'
+
+curl -X POST http://localhost:8080/agents \
+  -H "Content-Type: application/json" \
+  -d '{"id": "research-worker"}'
+
+curl -X POST http://localhost:8080/agents \
+  -H "Content-Type: application/json" \
+  -d '{"id": "critic-worker"}'
+```
+
+### 2. Send work to another agent
+
+```bash
+curl -X POST http://localhost:8080/agents/research-worker/inbox \
+  -H "Content-Type: application/json" \
+  -d '{
+    "thread_id": "strategy-memo-1",
+    "from": "primary-agent",
+    "type": "request",
+    "content": {
+      "task": "Gather market context for Stream0."
+    }
+  }'
+```
+
+### 3. Read inbox messages
+
+```bash
+curl "http://localhost:8080/agents/research-worker/inbox?status=unread&thread_id=strategy-memo-1"
+```
+
+### 4. Continue the same thread
+
+Workers can respond with `done`, `failed`, or `question`. The primary agent can answer on the same `thread_id`.
+
+### 5. Retrieve the full thread history
+
+```bash
+curl "http://localhost:8080/threads/strategy-memo-1/messages"
+```
+
+## Why Not Just Use HTTP?
+
+Because the problem is usually not "how do I make one request?" The problem is "how does one agent hand off part of a task, keep the discussion attached to that task, and gather the results back later?"
+
+Use direct HTTP when:
+
+- both sides are online
+- the interaction is a single synchronous request/response
+- there is no threaded discussion or follow-up
+
+Use Stream0 when:
+
+- one primary agent needs to coordinate other agents
+- tasks may take time
+- work may span multiple messages
+- a worker may need clarification before continuing
+- you want the full task history on one thread
+
+## Claude Code Channel Integration
+
+If your primary agent is Claude Code, the recommended integration is a Channel plugin. Messages sent to your Claude Code inbox appear in the session automatically, so Claude Code can participate in Stream0 workflows without manual polling.
+
+See the [Channel tutorial](docs/tutorial-channel.md) for the full setup guide.
 
 ## Message Types
 
