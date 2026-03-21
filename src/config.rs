@@ -178,22 +178,30 @@ impl CliConfig {
 
     // --- Skill Installation ---
 
-    fn skill_path() -> PathBuf {
+    fn skill_dir() -> PathBuf {
         dirs::home_dir()
             .unwrap_or_else(|| PathBuf::from("."))
             .join(".claude")
             .join("skills")
-            .join("bh.md")
+            .join("bh")
+    }
+
+    fn skill_path() -> PathBuf {
+        Self::skill_dir().join("SKILL.md")
     }
 
     pub fn install_skill(server_url: &str) -> anyhow::Result<()> {
-        let skill_dir = Self::skill_path().parent().unwrap().to_path_buf();
-        fs::create_dir_all(&skill_dir)?;
+        fs::create_dir_all(Self::skill_dir())?;
 
         let skill_content = format!(
 r#"---
-name: boxhouse
-description: Delegate tasks to specialized AI workers via Boxhouse
+name: bh
+description: |
+  Delegate tasks to specialized AI workers via Boxhouse.
+  Use when the user asks to review code, check security, run tests,
+  or any task that matches a registered worker's expertise.
+allowed-tools:
+  - Bash
 ---
 
 # Boxhouse (`bh`) — Agent Delegation
@@ -264,9 +272,14 @@ If a worker asks a question during `bh wait`, you'll see it. Use `bh reply <thre
     }
 
     pub fn uninstall_skill() -> anyhow::Result<()> {
-        let path = Self::skill_path();
-        if path.exists() {
-            fs::remove_file(&path)?;
+        let dir = Self::skill_dir();
+        if dir.exists() {
+            fs::remove_dir_all(&dir)?;
+        }
+        // Also clean up old format (bh.md plain file)
+        let old_path = dir.with_extension("md");
+        if old_path.exists() {
+            let _ = fs::remove_file(&old_path);
         }
         Ok(())
     }
