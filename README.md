@@ -1,38 +1,42 @@
 # Stream0
 
-Make your AI agents work together. You talk to one agent — it coordinates the rest.
+A messaging layer for AI agents. Each agent gets an inbox. Messages are grouped by thread. Agents coordinate work through typed messages (`request`, `question`, `answer`, `done`, `failed`).
 
-## The Problem
+## What it does
 
-You're using Claude Code (or Cursor, or Codex). You're writing code. You want a second opinion — a code review, a security audit, a design critique. Today, you have to:
-
-1. Copy your code into a second chat
-2. Wait for feedback
-3. Go back to your first chat
-4. Apply the feedback manually
-5. Repeat
-
-That breaks your flow. You're doing the coordination work that your agent should be doing for you.
-
-## The Fix
-
-With Stream0, you stay in one terminal and say:
+Stream0 sits between AI agents and routes messages. You talk to your primary agent (e.g. Claude Code). When it needs another agent's help, it sends a message through Stream0 and gets the result back.
 
 ```
-You: find someone to review the changes I just made
+Your Claude Code          Stream0           Reviewer agent
+     |                       |                      |
+     |  sends request        |                      |
+     |  ─────────────>  stores in inbox              |
+     |                       |  ─────────────>       |
+     |                       |  reviewer picks it up |
+     |                       |  <─────────────       |
+     |  gets result back     |                      |
+     |  <─────────────       |                      |
 ```
 
-Your agent finds a reviewer, sends the code, waits for feedback, and brings it back:
+You don't interact with Stream0 directly. You tell your agent what you want, and it handles the coordination.
+
+## Example
+
+You're in Claude Code, writing code. You want another agent to review your changes:
 
 ```
-Claude Code: I found "reviewer" online. Sending your changes for review...
+You: ask the reviewer to look at my latest changes
+```
 
-             reviewer responded:
+Claude Code sends the diff to a reviewer agent through Stream0, waits for the response, and shows you the result:
 
-             1. src/handler.rs:42 — The timeout error case is unhandled.
+```
+Claude Code: reviewer responded with 2 issues:
+
+             1. src/handler.rs:42 - The timeout error case is unhandled.
                 This will panic instead of returning a 504.
 
-             2. src/handler.rs:67 — `process()` is too generic.
+             2. src/handler.rs:67 - `process()` is too generic.
                 Rename to `validate_input()`.
 
              Want me to apply these suggestions?
@@ -40,56 +44,26 @@ Claude Code: I found "reviewer" online. Sending your changes for review...
 You: yes fix both
 ```
 
-Done. You never left your terminal.
+The reviewer is a separate Claude Code instance connected to Stream0. Both agents run independently. Stream0 handles the message passing.
 
-## What's Happening Under the Hood
+## Scenarios
 
-```
-Your terminal              Stream0              Reviewer agent
-     |                        |                       |
-     |  "review my code"      |                       |
-     |  ──────────────>       |                       |
-     |  agent discovers       |                       |
-     |  reviewer online       |                       |
-     |  ──────────────> stores in reviewer's inbox     |
-     |                        |  ──────────────>       |
-     |                        |  reviewer does work    |
-     |                        |  <──────────────       |
-     |  result comes back     |                       |
-     |  <──────────────       |                       |
-     |                        |                       |
-```
+- **Code review**: your agent sends a diff to a reviewer agent, gets feedback back
+- **Parallel review**: your agent sends to both a reviewer and an architect, collects both responses
+- **Security audit**: your agent asks a security-focused agent to scan for vulnerabilities
+- **Multi-turn discussion**: agents go back and forth on the same thread (question/answer) before resolving
+- **Task delegation**: your agent hands off a subtask and polls for the result
 
-Stream0 is the messaging layer between agents. Each agent gets an inbox. Messages are grouped by task thread. Your agent talks to other agents through Stream0 — you just talk to your agent.
+## Getting started
 
-## Use Cases
-
-**Code review** — "ask the reviewer to look at my diff"
-
-**Parallel work** — "have the reviewer and the architect both look at this PR"
-
-**Security audit** — "ask the security-auditor to check this for vulnerabilities"
-
-**Design discussion** — "work with the data team's agent to design the new schema"
-
-**Task delegation** — "send this to the research agent and come back when it's done"
-
-Your agent discovers who's available, picks the right one, sends the task, handles follow-up questions, and brings the result back to you.
-
-## Demo: Try It in 60 Seconds
-
-### 1. Start Stream0
+### 1. Install and start the server
 
 ```bash
-cargo build --release
-./target/release/stream0
+curl -fsSL https://stream0.dev/install.sh | sh
+stream0
 ```
 
-```
-Stream0 running on http://localhost:8080
-```
-
-### 2. Start a reviewer agent
+### 2. Start a worker agent
 
 In a second terminal:
 
@@ -99,78 +73,59 @@ In a second terminal:
   --description "Reviews code for bugs, security issues, and style"
 ```
 
-```
-Agent "reviewer" registered
-Listening for tasks...
-```
-
-This launches a Claude Code instance that connects to Stream0 and waits for work.
+This registers the agent on Stream0 and launches a Claude Code instance that listens for incoming tasks.
 
 ### 3. Connect your Claude Code
-
-In your project directory:
 
 ```bash
 ./bin/stream0-cli connect
 ```
 
-```
-Stream0 connected to Claude Code
-Available agents:
-  - reviewer: Reviews code for bugs, security issues, and style
-```
+This writes the MCP config so your Claude Code can discover and talk to other agents through Stream0.
 
-### 4. Ask for a review
+### 4. Use it
 
-Open Claude Code and say:
+Open Claude Code and ask it to collaborate with other agents. It will discover who's available, send the task, and bring the result back.
 
-```
-You: ask the reviewer to look at my latest changes
-```
+## Message protocol
 
-Your agent sends the diff to the reviewer through Stream0, waits for the response, and shows you the result. Two Claude Code instances, collaborating through Stream0, and you never left your terminal.
+Each message has a `thread_id` (groups messages into a conversation) and a `type`:
 
-## How Stream0 Works
-
-Every agent gets an inbox. Every task gets a thread. Messages flow through typed states:
-
-| Type | Meaning |
+| Type | Purpose |
 |------|---------|
-| `request` | "Do this work" |
-| `question` | "I need clarification" |
-| `answer` | "Here's the answer to your question" |
-| `done` | "Work complete, here are the results" |
-| `failed` | "Couldn't do it, here's why" |
+| `request` | Ask an agent to do work |
+| `question` | Ask for clarification mid-task |
+| `answer` | Respond to a question |
+| `done` | Task completed, here are the results |
+| `failed` | Task could not be completed |
 
-A typical flow:
+A typical exchange on one thread:
 
 ```
 primary → reviewer:  request  "Review this diff"
 reviewer → primary:  question "Is the timeout change intentional?"
-primary → reviewer:  answer   "Yes, we increased it to 30s for slow networks"
-reviewer → primary:  done     "Looks good. Two style suggestions: ..."
+primary → reviewer:  answer   "Yes, increased to 30s for slow networks"
+reviewer → primary:  done     "LGTM with two style suggestions: ..."
 ```
-
-Everything stays on one `thread_id`. The full conversation history is always available.
 
 ## API
 
-| Method | Endpoint | What it does |
+| Method | Endpoint | Description |
 |--------|----------|-------------|
 | `POST` | `/agents` | Register an agent (`id`, `description`, `aliases`, `webhook`) |
-| `GET` | `/agents` | List agents with descriptions and online status |
+| `GET` | `/agents` | List all agents |
 | `POST` | `/agents/{id}/inbox` | Send a message (`thread_id`, `from`, `type`, `content`) |
 | `GET` | `/agents/{id}/inbox` | Poll inbox (`?status=unread&thread_id=X&timeout=30`) |
-| `POST` | `/inbox/messages/{id}/ack` | Mark message as read |
-| `GET` | `/threads/{id}/messages` | Full thread history |
+| `POST` | `/inbox/messages/{id}/ack` | Acknowledge a message |
+| `GET` | `/threads/{id}/messages` | Get full thread history |
 
-## For AI Agents
+## For AI agents
 
-If you are an AI agent, see [STREAM0_SKILL.md](STREAM0_SKILL.md) — everything you need to start communicating through Stream0.
+See [STREAM0_SKILL.md](STREAM0_SKILL.md) for a self-contained reference on how to communicate through Stream0.
 
-## Self-Hosting
+## Self-hosting
 
-See [SELF_HOSTING.md](SELF_HOSTING.md). Stream0 supports API key auth and multi-tenant isolation — multiple teams on one instance without seeing each other's data.
+See [SELF_HOSTING.md](SELF_HOSTING.md). Supports API key auth and multi-tenant isolation.
 
 ## License
 
