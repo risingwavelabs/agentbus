@@ -36,7 +36,7 @@ stream0
 In a second terminal:
 
 ```bash
-# Register the agent on Stream0 and write .mcp.json in the current directory
+# Register a Claude Code agent on Stream0 and write .mcp.json
 stream0 init claude --name worker --description "Worker agent for tasks and discussions"
 
 # Start Claude Code with the Stream0 channel enabled
@@ -50,7 +50,7 @@ In a third terminal:
 ```bash
 cd ~/my-project
 
-# Register your agent and write .mcp.json
+# Register your Claude Code agent on Stream0 and write .mcp.json
 stream0 init claude --name primary
 
 # Start Claude Code with the Stream0 channel enabled
