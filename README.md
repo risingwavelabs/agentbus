@@ -7,23 +7,26 @@ If you're running multiple AI agents, there's no standard way for them to coordi
 Agents don't need to know each other's IP or be on the same machine. Each agent registers a name on Stream0 and sends messages by name. Stream0 handles the routing. Your primary agent can be on your laptop, a reviewer on an EC2 instance, a security auditor on another. They just talk by name.
 
 ```
-You: review this PR, check for security issues, and update the docs.
+You: ask alice, bob, and carol whether Claude Code or Codex is better
+     for professional development. then give me your conclusion.
 
-Claude Code: I'll send these to three agents in parallel.
+Claude Code: I'll ask all three in parallel.
 
-             reviewer: 2 issues found in handler.rs.
-               1. Timeout error case is unhandled on line 42.
-               2. Function name `process()` is too generic.
+             alice: Codex wins on openness. It's built on open models,
+               you can self-host, and there's no vendor lock-in...
 
-             security-auditor: no vulnerabilities detected.
-               Checked for SQL injection, XSS, and command injection.
+             bob: Claude Code is more reliable. The context window is
+               larger, tool use is more predictable, and Anthropic's
+               safety record means fewer surprises in production...
 
-             doc-writer: updated README with the new /agents endpoint.
+             carol: Claude Code has the better DX. The CLI is faster,
+               the agent loop is tighter, and the permission model
+               actually makes sense...
 
-             All three done. Want me to apply the changes?
+             Based on their arguments, here's my synthesis: ...
 ```
 
-One command, three agents working in parallel, results collected back. The agents can be on different machines. Stream0 routes everything by name.
+One question, three agents debating in parallel, results synthesized back. The agents can be on different machines. Stream0 routes everything by name.
 
 ## How it works
 
@@ -60,65 +63,44 @@ curl -fsSL https://stream0.dev/install.sh | sh
 stream0
 ```
 
-### 2. Start a worker agent
+### 2. Start three agents
 
-In a second terminal:
+In three separate terminals:
 
 ```bash
-# Register a Claude Code agent on Stream0 and write .mcp.json
-stream0 init claude --name worker --description "Worker agent for tasks and discussions"
+stream0 init claude --name alice --description "Believes in open source and developer freedom"
+claude --dangerously-load-development-channels server:stream0-channel
+```
 
-# Start Claude Code with the Stream0 channel enabled
+```bash
+stream0 init claude --name bob --description "Cares about reliability and enterprise readiness"
+claude --dangerously-load-development-channels server:stream0-channel
+```
+
+```bash
+stream0 init claude --name carol --description "Focused on developer experience and productivity"
 claude --dangerously-load-development-channels server:stream0-channel
 ```
 
 ### 3. Start your primary agent
 
-In a third terminal:
+In a fourth terminal:
 
 ```bash
 cd ~/my-project
-
-# Register your Claude Code agent on Stream0 and write .mcp.json
 stream0 init claude --name primary
-
-# Start Claude Code with the Stream0 channel enabled
 claude --dangerously-load-development-channels server:stream0-channel
 ```
 
 ### 4. Try it
 
-In your primary agent's Claude Code session:
-
 ```
-You: ask worker to argue why Codex is better than Claude Code.
-     then tell me why you disagree.
-```
-
-Your primary agent sends the question to the worker through Stream0, gets the argument back, and gives you its counterargument.
-
-### Parallel orchestration
-
-Start three worker agents (each in its own terminal):
-
-```bash
-stream0 init claude --name reviewer --description "Code reviewer"
-claude --dangerously-load-development-channels server:stream0-channel
-
-stream0 init claude --name auditor --description "Security auditor"
-claude --dangerously-load-development-channels server:stream0-channel
-
-stream0 init claude --name writer --description "Documentation writer"
-claude --dangerously-load-development-channels server:stream0-channel
+You: ask alice, bob, and carol to each argue whether Claude Code or Codex
+     is better for professional software development. then synthesize
+     their arguments and give me your own conclusion.
 ```
 
-Then in your primary agent:
-
-```
-You: review this PR, check for security issues, and update the docs.
-```
-
-Your agent sends tasks to all three in parallel using `send_task`, then waits for all results with `wait_results`. Three agents working simultaneously, results collected back in one go.
+Your agent sends the question to all three in parallel, collects their arguments, and synthesizes a conclusion. Three agents debating simultaneously, one answer back to you.
 
 ## Authentication
 
