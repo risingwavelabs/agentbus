@@ -154,9 +154,9 @@ Workers are not limited to coding. A marketer worker gets a delegation prompt ab
 
 ## Lead implementation
 
-Two candidate approaches. Both use `bh delegate` (non-blocking) to send tasks. They differ in how results come back.
+The lead is any agent with shell access. For MVP, we focus on Claude Code as the lead, but the design is runtime-agnostic — any agent that can run `bh` CLI commands can be a lead.
 
-### Option A: CLI-only (pull-based)
+### MVP: CLI-only (pull-based)
 
 The lead uses `bh` CLI via bash. No MCP, no channel.
 
@@ -174,16 +174,18 @@ bh wait
 # All done.
 ```
 
-**How results arrive**: Claude Code must explicitly poll via `bh wait` or `bh status`. It cannot be notified passively.
+**How results arrive**: The lead must explicitly poll via `bh wait` or `bh status`. It cannot be notified passively.
 
-**Multi-task concurrency**: User fires off tasks 1, 2, 3 in rapid succession (all non-blocking). Results sit in inbox until Claude Code checks. The skill instructs Claude Code to run `bh status` before responding to new user messages, so it can proactively report completed tasks.
+**Multi-task concurrency**: User fires off tasks 1, 2, 3 in rapid succession (all non-blocking). Results sit in inbox until the lead checks. The skill instructs Claude Code to run `bh status` before responding to new user messages, so it can proactively report completed tasks.
 
-**Multi-turn (worker asks a question)**: `bh wait` returns all pending events in a batch. Claude Code processes questions, runs `bh reply`, then calls `bh wait` again. Or: `bh orchestrate` command handles the event loop internally, only surfacing questions to Claude Code when human judgment is needed.
+**Multi-turn (worker asks a question)**: `bh wait` returns all pending events in a batch. The lead processes questions, runs `bh reply`, then calls `bh wait` again. Or: `bh orchestrate` command handles the event loop internally, only surfacing questions to the lead when human judgment is needed.
 
 **Pros**: Simple. Universal — any agent with shell access can be a lead. No MCP dependency.
-**Cons**: Pull-based. Claude Code cannot notice background task completions while processing user input. Relies on proactive polling.
+**Cons**: Pull-based. The lead cannot notice background task completions while processing user input. Relies on proactive polling.
 
-### Option B: Channel + CLI (push-based)
+### Future: Channel + CLI (push-based)
+
+Not in scope for MVP. Recorded here for future reference.
 
 The lead uses both:
 - **boxhouse-channel (MCP)**: receives push notifications (worker results, worker questions)
@@ -195,18 +197,14 @@ Lead (Claude Code)
 └── bh CLI      → send: delegate, reply, worker add (pull)
 ```
 
-**How results arrive**: Boxhouse channel pushes notifications to Claude Code. When worker-1 finishes, Claude Code is immediately notified — even if the user is in the middle of a different conversation. Claude Code can interleave: "By the way, problem 1 is fixed. Now, about your current question..."
+**How results arrive**: Boxhouse channel pushes notifications to the lead. When worker-1 finishes, the lead is immediately notified — even if the user is in the middle of a different conversation. The lead can interleave: "By the way, problem 1 is fixed. Now, about your current question..."
 
 **Multi-task concurrency**: Fully async. User fires off tasks and continues working. Results arrive as push notifications through the channel. No polling needed.
 
-**Multi-turn (worker asks a question)**: Channel pushes the question to Claude Code. Claude Code sees it in context, reasons about it, replies via CLI (`bh reply`). Natural and responsive.
+**Multi-turn (worker asks a question)**: Channel pushes the question to the lead. The lead sees it in context, reasons about it, replies via CLI (`bh reply`). Natural and responsive.
 
-**Pros**: True async. Claude Code is notified immediately. Better UX for concurrent tasks.
-**Cons**: Depends on Claude Code's channel feature (experimental). Lead must support MCP — not all agents do. More complex setup.
-
-### Decision: TBD
-
-Option A is simpler and more universal. Option B provides better UX for concurrent multi-task scenarios. Both share the same CLI commands for sending tasks and managing workers. The choice mainly affects how results flow back to the lead.
+**Pros**: True async. Lead is notified immediately. Better UX for concurrent tasks.
+**Cons**: Depends on MCP channel support (experimental). Lead must support MCP — not all agents do. More complex setup.
 
 ### How Claude Code knows about Boxhouse
 
