@@ -1,0 +1,72 @@
+name: Auto Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+
+permissions:
+  contents: write
+
+jobs:
+  bump-and-tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if version already tagged
+        id: check
+        run: |
+          CURRENT=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          if git tag -l "v$CURRENT" | grep -q .; then
+            echo "needs_bump=true" >> $GITHUB_OUTPUT
+            echo "Current v$CURRENT already tagged, will bump"
+          else
+            echo "needs_bump=false" >> $GITHUB_OUTPUT
+            echo "v$CURRENT not yet tagged, will tag as-is"
+          fi
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+
+      - name: Bump patch version
+        if: steps.check.outputs.needs_bump == 'true'
+        id: bump
+        run: |
+          CURRENT="${{ steps.check.outputs.current }}"
+          # Split version
+          MAJOR=$(echo $CURRENT | cut -d. -f1)
+          MINOR=$(echo $CURRENT | cut -d. -f2)
+          PATCH=$(echo $CURRENT | cut -d. -f3)
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+          # Update Cargo.toml
+          sed -i "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" Cargo.toml
+
+          # Update version string in main.rs
+          sed -i "s/\"version\": \"$CURRENT\"/\"version\": \"$NEW_VERSION\"/" src/main.rs
+
+          # Commit
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml src/main.rs
+          git commit -m "Bump version to $NEW_VERSION [skip ci]"
+          git push
+
+      - name: Create tag
+        run: |
+          if [ "${{ steps.check.outputs.needs_bump }}" == "true" ]; then
+            VERSION="${{ steps.bump.outputs.new_version }}"
+          else
+            VERSION="${{ steps.check.outputs.current }}"
+          fi
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
