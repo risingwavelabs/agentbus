@@ -64,6 +64,8 @@ enum Command {
         thread_id: String,
         message: String,
     },
+    /// Reset everything (delete DB, config, skill)
+    Reset,
     /// Show connection status and pending tasks
     Status,
 }
@@ -236,6 +238,7 @@ async fn main() {
             };
             cmd_delegate(&worker, &task_content).await;
         }
+        Command::Reset => cmd_reset(),
         Command::Wait => cmd_wait().await,
         Command::Reply { thread_id, message } => cmd_reply(&thread_id, &message).await,
         Command::Status => cmd_status().await,
@@ -276,6 +279,22 @@ async fn cmd_login(server_url: &str, api_key: Option<&str>) {
     }
 
     println!("Login complete. Server: {}", url);
+}
+
+fn cmd_reset() {
+    // Remove DB in current directory
+    for name in ["bh.db", "bh.db-wal", "bh.db-shm"] {
+        if std::path::Path::new(name).exists() {
+            let _ = std::fs::remove_file(name);
+        }
+    }
+
+    // Remove CLI config and pending state
+    let _ = config::CliConfig::uninstall_skill();
+    let cfg = config::CliConfig::load();
+    let _ = cfg.clear();
+
+    println!("Reset complete. Removed database, config, and skill.");
 }
 
 fn cmd_logout() {
