@@ -86,9 +86,6 @@ enum AgentAction {
         /// Stream0 server URL
         #[arg(long, default_value = "http://localhost:8080")]
         url: String,
-        /// Keep the agent running in the foreground (interactive mode)
-        #[arg(long)]
-        foreground: bool,
     },
 }
 
@@ -638,7 +635,7 @@ fn mcp_config_json(url: &str, api_key: &str, agent_id: &str) -> serde_json::Valu
     })
 }
 
-async fn cmd_agent_start(name: &str, description: &str, url: &str, foreground: bool) {
+async fn cmd_agent_start(name: &str, description: &str, url: &str) {
     let api_key = std::env::var("STREAM0_API_KEY").unwrap_or_default();
 
     // Check server is running
@@ -691,12 +688,6 @@ async fn cmd_agent_start(name: &str, description: &str, url: &str, foreground: b
         format!("You are '{}', a worker agent on Stream0. {}. Wait for incoming tasks from other agents. When you receive a task via the channel, do the work using your tools, then reply with the result. Stay focused on your specialty.", name, description)
     };
 
-    let prompt = if description.is_empty() {
-        format!("You are agent '{}' on Stream0. You are now online and listening for tasks. Wait for incoming messages.", name)
-    } else {
-        format!("You are agent '{}' on Stream0. {}. You are now online and listening for tasks. Wait for incoming messages.", name, description)
-    };
-
     // Launch Claude Code
     let mut cmd = std::process::Command::new("claude");
     cmd.arg("--mcp-config")
@@ -706,9 +697,8 @@ async fn cmd_agent_start(name: &str, description: &str, url: &str, foreground: b
         .arg("--allowedTools")
         .arg("mcp__stream0-channel__reply,mcp__stream0-channel__ack,Read,Glob,Grep,Bash,Edit,Write");
 
-    if !foreground {
-        cmd.arg("-p").arg(&prompt);
-    }
+    // Always run interactively so the agent stays alive to handle tasks.
+    // The MCP channel pushes incoming messages into the session.
 
     match cmd.status() {
         Ok(status) => std::process::exit(status.code().unwrap_or(0)),
@@ -857,8 +847,8 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Command::Agent { action: AgentAction::Start { name, description, url, foreground } }) => {
-            cmd_agent_start(&name, &description, &url, foreground).await;
+        Some(Command::Agent { action: AgentAction::Start { name, description, url } }) => {
+            cmd_agent_start(&name, &description, &url).await;
         }
         Some(Command::Connect { url, name }) => {
             cmd_connect(&url, name.as_deref()).await;
