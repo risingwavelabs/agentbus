@@ -69,17 +69,17 @@ In three separate terminals:
 
 ```bash
 stream0 init claude --name alice --description "Believes in open source and developer freedom"
-claude --dangerously-load-development-channels server:stream0-channel
+claude --dangerously-skip-permissions --dangerously-load-development-channels server:stream0-channel
 ```
 
 ```bash
 stream0 init claude --name bob --description "Cares about reliability and enterprise readiness"
-claude --dangerously-load-development-channels server:stream0-channel
+claude --dangerously-skip-permissions --dangerously-load-development-channels server:stream0-channel
 ```
 
 ```bash
 stream0 init claude --name carol --description "Focused on developer experience and productivity"
-claude --dangerously-load-development-channels server:stream0-channel
+claude --dangerously-skip-permissions --dangerously-load-development-channels server:stream0-channel
 ```
 
 ### 3. Start your primary agent
@@ -89,7 +89,7 @@ In a fourth terminal:
 ```bash
 cd ~/my-project
 stream0 init claude --name primary
-claude --dangerously-load-development-channels server:stream0-channel
+claude --dangerously-skip-permissions --dangerously-load-development-channels server:stream0-channel
 ```
 
 ### 4. Try it
