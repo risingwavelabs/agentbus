@@ -39,8 +39,54 @@ type SharedState = Arc<AppState>;
 #[derive(Parser)]
 #[command(name = "stream0")]
 struct Cli {
-    #[arg(short, long)]
+    #[command(subcommand)]
+    command: Option<Command>,
+
+    /// Path to YAML config file
+    #[arg(short, long, global = true)]
     config: Option<String>,
+}
+
+#[derive(clap::Subcommand)]
+enum Command {
+    /// Start the Stream0 server (default if no subcommand)
+    Serve,
+    /// Agent management
+    Agent {
+        #[command(subcommand)]
+        action: AgentAction,
+    },
+    /// Connect your Claude Code to this Stream0 instance
+    Connect {
+        /// Stream0 server URL
+        #[arg(long, default_value = "http://localhost:8080")]
+        url: String,
+        /// Agent name for your Claude Code
+        #[arg(long)]
+        name: Option<String>,
+    },
+    /// Show server status and registered agents
+    Status {
+        /// Stream0 server URL
+        #[arg(long, default_value = "http://localhost:8080")]
+        url: String,
+    },
+}
+
+#[derive(clap::Subcommand)]
+enum AgentAction {
+    /// Register an agent and launch a Claude Code worker
+    Start {
+        /// Agent name
+        #[arg(long)]
+        name: String,
+        /// What this agent does
+        #[arg(long, default_value = "")]
+        description: String,
+        /// Stream0 server URL
+        #[arg(long, default_value = "http://localhost:8080")]
+        url: String,
+    },
 }
 
 // --- Request/Response types ---
@@ -571,12 +617,289 @@ fn error_response(status: StatusCode, message: &str) -> axum::response::Response
     (status, Json(serde_json::json!({"error": message}))).into_response()
 }
 
+// --- CLI subcommands ---
+
+fn find_mcp_channel_path() -> String {
+    // Look for stream0-channel.ts relative to the executable
+    let exe = std::env::current_exe().unwrap_or_default();
+    let exe_dir = exe.parent().unwrap_or(std::path::Path::new("."));
+
+    // Check common locations
+    for candidate in &[
+        exe_dir.join("../mcp/stream0-channel.ts"),
+        exe_dir.join("mcp/stream0-channel.ts"),
+        std::path::PathBuf::from("./mcp/stream0-channel.ts"),
+    ] {
+        if candidate.exists() {
+            return candidate.canonicalize().unwrap_or(candidate.clone()).to_string_lossy().to_string();
+        }
+    }
+
+    // Fallback: assume it's alongside the binary
+    "./mcp/stream0-channel.ts".to_string()
+}
+
+async fn cmd_agent_start(name: &str, description: &str, url: &str) {
+    let api_key = std::env::var("STREAM0_API_KEY").unwrap_or_default();
+
+    // Check server is running
+    let health_url = format!("{}/health", url);
+    if reqwest::get(&health_url).await.is_err() {
+        eprintln!("Error: Stream0 server not reachable at {}", url);
+        eprintln!("Start the server first: stream0");
+        std::process::exit(1);
+    }
+
+    // Register agent
+    let client = reqwest::Client::new();
+    let mut body = serde_json::json!({"id": name});
+    if !description.is_empty() {
+        body["description"] = serde_json::Value::String(description.to_string());
+    }
+    let mut req = client.post(format!("{}/agents", url)).json(&body);
+    if !api_key.is_empty() {
+        req = req.header("X-API-Key", &api_key);
+    }
+    match req.send().await {
+        Ok(resp) if resp.status().is_success() => {
+            eprintln!("Agent \"{}\" registered", name);
+        }
+        Ok(resp) => {
+            let text = resp.text().await.unwrap_or_default();
+            eprintln!("Failed to register agent: {}", text);
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("Failed to register agent: {}", e);
+            std::process::exit(1);
+        }
+    }
+
+    // Create temporary MCP config
+    let mcp_channel_path = find_mcp_channel_path();
+    let tmp_dir = std::env::temp_dir().join(format!("stream0-agent-{}", name));
+    std::fs::create_dir_all(&tmp_dir).expect("failed to create temp dir");
+    let mcp_config_path = tmp_dir.join("mcp.json");
+
+    let mcp_config = serde_json::json!({
+        "mcpServers": {
+            "stream0-channel": {
+                "command": "bun",
+                "args": [mcp_channel_path],
+                "env": {
+                    "STREAM0_URL": url,
+                    "STREAM0_API_KEY": api_key,
+                    "STREAM0_AGENT_ID": name
+                }
+            }
+        }
+    });
+    std::fs::write(&mcp_config_path, serde_json::to_string_pretty(&mcp_config).unwrap())
+        .expect("failed to write MCP config");
+
+    eprintln!("Listening for tasks...");
+
+    let system_prompt = if description.is_empty() {
+        format!("You are '{}', a worker agent on Stream0. Wait for incoming tasks from other agents. When you receive a task via the channel, do the work using your tools, then reply with the result.", name)
+    } else {
+        format!("You are '{}', a worker agent on Stream0. {}. Wait for incoming tasks from other agents. When you receive a task via the channel, do the work using your tools, then reply with the result. Stay focused on your specialty.", name, description)
+    };
+
+    let prompt = if description.is_empty() {
+        format!("You are agent '{}' on Stream0. You are now online and listening for tasks. Wait for incoming messages.", name)
+    } else {
+        format!("You are agent '{}' on Stream0. {}. You are now online and listening for tasks. Wait for incoming messages.", name, description)
+    };
+
+    // Launch Claude Code
+    let err = std::process::Command::new("claude")
+        .arg("--mcp-config")
+        .arg(&mcp_config_path)
+        .arg("--system-prompt")
+        .arg(&system_prompt)
+        .arg("--allowedTools")
+        .arg("mcp__stream0-channel__reply,mcp__stream0-channel__ack,Read,Glob,Grep,Bash,Edit,Write")
+        .arg("-p")
+        .arg(&prompt)
+        .status();
+
+    match err {
+        Ok(status) => std::process::exit(status.code().unwrap_or(0)),
+        Err(e) => {
+            eprintln!("Failed to launch claude: {}", e);
+            eprintln!("Make sure Claude Code CLI is installed: https://claude.ai/code");
+            std::process::exit(1);
+        }
+    }
+}
+
+async fn cmd_connect(url: &str, name: Option<&str>) {
+    let api_key = std::env::var("STREAM0_API_KEY").unwrap_or_default();
+    let agent_id = match name {
+        Some(n) => n.to_string(),
+        None => format!("{}-claude", whoami::username()),
+    };
+
+    // Check server is running
+    let health_url = format!("{}/health", url);
+    if reqwest::get(&health_url).await.is_err() {
+        eprintln!("Error: Stream0 server not reachable at {}", url);
+        std::process::exit(1);
+    }
+
+    // Register self
+    let client = reqwest::Client::new();
+    let mut req = client.post(format!("{}/agents", url))
+        .json(&serde_json::json!({"id": agent_id}));
+    if !api_key.is_empty() {
+        req = req.header("X-API-Key", &api_key);
+    }
+    let _ = req.send().await;
+
+    let mcp_channel_path = find_mcp_channel_path();
+    let mcp_file = std::path::Path::new(".mcp.json");
+
+    if mcp_file.exists() {
+        let content = std::fs::read_to_string(mcp_file).unwrap_or_default();
+        if content.contains("stream0-channel") {
+            println!("Stream0 channel already configured in .mcp.json");
+        } else {
+            println!("Warning: .mcp.json exists. Add this to your mcpServers:\n");
+            println!("  \"stream0-channel\": {{");
+            println!("    \"command\": \"bun\",");
+            println!("    \"args\": [\"{}\"],", mcp_channel_path);
+            println!("    \"env\": {{");
+            println!("      \"STREAM0_URL\": \"{}\",", url);
+            println!("      \"STREAM0_API_KEY\": \"{}\",", api_key);
+            println!("      \"STREAM0_AGENT_ID\": \"{}\"", agent_id);
+            println!("    }}");
+            println!("  }}");
+            return;
+        }
+    } else {
+        let config = serde_json::json!({
+            "mcpServers": {
+                "stream0-channel": {
+                    "command": "bun",
+                    "args": [mcp_channel_path],
+                    "env": {
+                        "STREAM0_URL": url,
+                        "STREAM0_API_KEY": api_key,
+                        "STREAM0_AGENT_ID": agent_id
+                    }
+                }
+            }
+        });
+        std::fs::write(mcp_file, serde_json::to_string_pretty(&config).unwrap())
+            .expect("failed to write .mcp.json");
+        println!("Stream0 connected to Claude Code");
+        println!("Config written to .mcp.json");
+    }
+
+    // Show available agents
+    println!("\nAvailable agents:");
+    let mut req = client.get(format!("{}/agents", url));
+    if !api_key.is_empty() {
+        req = req.header("X-API-Key", &api_key);
+    }
+    if let Ok(resp) = req.send().await {
+        if let Ok(data) = resp.json::<serde_json::Value>().await {
+            if let Some(agents) = data["agents"].as_array() {
+                let mut found = false;
+                for a in agents {
+                    let id = a["id"].as_str().unwrap_or("");
+                    if id == agent_id { continue; }
+                    let desc = a["description"].as_str().unwrap_or("(no description)");
+                    println!("  - {}: {}", id, desc);
+                    found = true;
+                }
+                if !found {
+                    println!("  (none yet)");
+                }
+            }
+        }
+    }
+}
+
+async fn cmd_status(url: &str) {
+    let api_key = std::env::var("STREAM0_API_KEY").unwrap_or_default();
+
+    // Check server
+    let health_url = format!("{}/health", url);
+    match reqwest::get(&health_url).await {
+        Ok(resp) => {
+            if let Ok(data) = resp.json::<serde_json::Value>().await {
+                let version = data["version"].as_str().unwrap_or("?");
+                println!("Stream0 running at {} ({})", url, version);
+            }
+        }
+        Err(_) => {
+            eprintln!("Stream0 server not reachable at {}", url);
+            std::process::exit(1);
+        }
+    }
+
+    // List agents
+    let client = reqwest::Client::new();
+    let mut req = client.get(format!("{}/agents", url));
+    if !api_key.is_empty() {
+        req = req.header("X-API-Key", &api_key);
+    }
+
+    println!("\nRegistered agents:");
+    if let Ok(resp) = req.send().await {
+        if let Ok(data) = resp.json::<serde_json::Value>().await {
+            if let Some(agents) = data["agents"].as_array() {
+                if agents.is_empty() {
+                    println!("  (none)");
+                    return;
+                }
+                let now = chrono::Utc::now();
+                for a in agents {
+                    let id = a["id"].as_str().unwrap_or("?");
+                    let desc = a["description"].as_str().unwrap_or("(no description)");
+                    let status = match a["last_seen"].as_str() {
+                        Some(ls) => {
+                            if let Ok(seen) = chrono::DateTime::parse_from_rfc3339(ls) {
+                                let diff = (now - seen.with_timezone(&chrono::Utc)).num_seconds();
+                                if diff < 300 { "online " } else { "offline" }
+                            } else {
+                                "offline"
+                            }
+                        }
+                        None => "offline",
+                    };
+                    println!("  {} {}: {}", status, id, desc);
+                }
+            }
+        }
+    }
+}
+
 // --- Main ---
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    let cfg = Config::load(cli.config.as_deref());
+
+    match cli.command {
+        Some(Command::Agent { action: AgentAction::Start { name, description, url } }) => {
+            cmd_agent_start(&name, &description, &url).await;
+        }
+        Some(Command::Connect { url, name }) => {
+            cmd_connect(&url, name.as_deref()).await;
+        }
+        Some(Command::Status { url }) => {
+            cmd_status(&url).await;
+        }
+        Some(Command::Serve) | None => {
+            run_server(cli.config.as_deref()).await;
+        }
+    }
+}
+
+async fn run_server(config_path: Option<&str>) {
+    let cfg = Config::load(config_path);
 
     // Setup logging
     if cfg.log.format == "json" {

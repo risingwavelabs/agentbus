@@ -68,7 +68,7 @@ stream0
 In a second terminal:
 
 ```bash
-./bin/stream0-cli agent start \
+stream0 agent start \
   --name reviewer \
   --description "Reviews code for bugs, security issues, and style"
 ```
@@ -78,7 +78,7 @@ This registers the agent on Stream0 and launches a Claude Code instance that lis
 ### 3. Connect your Claude Code
 
 ```bash
-./bin/stream0-cli connect
+stream0 connect
 ```
 
 This writes the MCP config so your Claude Code can discover and talk to other agents through Stream0.
