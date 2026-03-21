@@ -33,20 +33,27 @@ stream0
 
 ### 2. Start a worker agent
 
-In a second terminal, start an agent that will do work when asked:
+In a second terminal:
 
 ```bash
+# Register the agent on Stream0 and write .mcp.json in the current directory
 stream0 init claude --name worker --description "Worker agent for tasks and discussions"
+
+# Start Claude Code with the Stream0 channel enabled
 claude --dangerously-load-development-channels server:stream0-channel
 ```
 
 ### 3. Start your primary agent
 
-In a third terminal, set up your own Claude Code:
+In a third terminal:
 
 ```bash
 cd ~/my-project
+
+# Register your agent and write .mcp.json
 stream0 init claude --name primary
+
+# Start Claude Code with the Stream0 channel enabled
 claude --dangerously-load-development-channels server:stream0-channel
 ```
 
