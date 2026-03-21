@@ -86,6 +86,9 @@ enum AgentAction {
         /// Stream0 server URL
         #[arg(long, default_value = "http://localhost:8080")]
         url: String,
+        /// Keep the agent running in the foreground (interactive mode)
+        #[arg(long)]
+        foreground: bool,
     },
 }
 
@@ -635,7 +638,7 @@ fn mcp_config_json(url: &str, api_key: &str, agent_id: &str) -> serde_json::Valu
     })
 }
 
-async fn cmd_agent_start(name: &str, description: &str, url: &str) {
+async fn cmd_agent_start(name: &str, description: &str, url: &str, foreground: bool) {
     let api_key = std::env::var("STREAM0_API_KEY").unwrap_or_default();
 
     // Check server is running
@@ -695,18 +698,19 @@ async fn cmd_agent_start(name: &str, description: &str, url: &str) {
     };
 
     // Launch Claude Code
-    let err = std::process::Command::new("claude")
-        .arg("--mcp-config")
+    let mut cmd = std::process::Command::new("claude");
+    cmd.arg("--mcp-config")
         .arg(&mcp_config_path)
         .arg("--system-prompt")
         .arg(&system_prompt)
         .arg("--allowedTools")
-        .arg("mcp__stream0-channel__reply,mcp__stream0-channel__ack,Read,Glob,Grep,Bash,Edit,Write")
-        .arg("-p")
-        .arg(&prompt)
-        .status();
+        .arg("mcp__stream0-channel__reply,mcp__stream0-channel__ack,Read,Glob,Grep,Bash,Edit,Write");
 
-    match err {
+    if !foreground {
+        cmd.arg("-p").arg(&prompt);
+    }
+
+    match cmd.status() {
         Ok(status) => std::process::exit(status.code().unwrap_or(0)),
         Err(e) => {
             eprintln!("Failed to launch claude: {}", e);
@@ -853,8 +857,8 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Command::Agent { action: AgentAction::Start { name, description, url } }) => {
-            cmd_agent_start(&name, &description, &url).await;
+        Some(Command::Agent { action: AgentAction::Start { name, description, url, foreground } }) => {
+            cmd_agent_start(&name, &description, &url, foreground).await;
         }
         Some(Command::Connect { url, name }) => {
             cmd_connect(&url, name.as_deref()).await;
