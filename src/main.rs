@@ -109,6 +109,8 @@ struct ReplyRequest {
 struct RegisterAgentRequest {
     id: String,
     #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
     aliases: Option<Vec<String>>,
     #[serde(default)]
     webhook: Option<String>,
@@ -412,7 +414,7 @@ async fn register_agent_handler(
     Extension(Tenant(tenant)): Extension<Tenant>,
     Json(req): Json<RegisterAgentRequest>,
 ) -> impl IntoResponse {
-    match state.db.register_agent(&tenant, &req.id, req.aliases.as_deref(), req.webhook.as_deref()) {
+    match state.db.register_agent(&tenant, &req.id, req.aliases.as_deref(), req.webhook.as_deref(), req.description.as_deref()) {
         Ok(agent) => (StatusCode::CREATED, Json(serde_json::to_value(agent).unwrap())).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }

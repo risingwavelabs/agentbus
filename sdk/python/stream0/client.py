@@ -234,22 +234,25 @@ class Stream0Client:
         result = self._handle_response(resp)
         return result.get("agents", [])
 
-    def register_agent(self, agent_id, aliases=None, webhook=None):
+    def register_agent(self, agent_id, aliases=None, webhook=None, description=None):
         """Register an agent. Creates its inbox. Idempotent.
 
         Args:
             agent_id: Unique agent identifier.
             aliases: Optional list of alternative names for this agent.
             webhook: Optional URL. Stream0 will POST to this URL when a message arrives.
+            description: Optional description of what this agent does.
 
         Returns:
-            Dict with id, aliases, created_at, last_seen, and webhook.
+            Dict with id, description, aliases, created_at, last_seen, and webhook.
         """
         body = {"id": agent_id}
         if aliases:
             body["aliases"] = aliases
         if webhook:
             body["webhook"] = webhook
+        if description:
+            body["description"] = description
         resp = self._session.post(
             self._url("/agents"),
             json=body,
@@ -378,15 +381,16 @@ class Agent:
         agent.ack(messages[0]["id"])
     """
 
-    def __init__(self, agent_id, url="http://localhost:8080", api_key=None, timeout=30, aliases=None, webhook=None):
+    def __init__(self, agent_id, url="http://localhost:8080", api_key=None, timeout=30, aliases=None, webhook=None, description=None):
         self.agent_id = agent_id
         self.aliases = aliases
         self.webhook = webhook
+        self.description = description
         self.client = Stream0Client(url, api_key=api_key, timeout=timeout)
 
     def register(self):
         """Register this agent with stream0."""
-        return self.client.register_agent(self.agent_id, aliases=self.aliases, webhook=self.webhook)
+        return self.client.register_agent(self.agent_id, aliases=self.aliases, webhook=self.webhook, description=self.description)
 
     def send(self, to, thread_id, msg_type, content=None):
         """Send a message to another agent's inbox."""

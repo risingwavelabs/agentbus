@@ -35,6 +35,8 @@ pub struct Message {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
     pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
     pub aliases: Vec<String>,
@@ -147,6 +149,7 @@ impl Database {
             CREATE TABLE IF NOT EXISTS agents (
                 tenant TEXT NOT NULL DEFAULT 'default',
                 id TEXT NOT NULL,
+                description TEXT,
                 created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                 last_seen TEXT,
                 webhook TEXT,
@@ -182,6 +185,15 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_inbox_tenant_to_thread ON inbox_messages(tenant, to_agent, thread_id);
             ",
         )?;
+
+        // Migration: add description column to agents if it doesn't exist
+        let has_description: bool = conn
+            .prepare("SELECT description FROM agents LIMIT 0")
+            .is_ok();
+        if !has_description {
+            conn.execute_batch("ALTER TABLE agents ADD COLUMN description TEXT;")?;
+        }
+
         Ok(())
     }
 
@@ -493,26 +505,24 @@ impl Database {
     pub fn list_agents(&self, tenant: &str) -> Result<Vec<Agent>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, created_at, last_seen, webhook FROM agents WHERE tenant = ?1 ORDER BY created_at ASC",
+            "SELECT id, description, created_at, last_seen, webhook FROM agents WHERE tenant = ?1 ORDER BY created_at ASC",
         )?;
         let agents: Vec<Agent> = stmt
             .query_map(params![tenant], |row| {
-                let ts: String = row.get(1)?;
-                let ls: Option<String> = row.get(2)?;
-                let wh: Option<String> = row.get(3)?;
-                Ok((
-                    row.get::<_, String>(0)?,
-                    ts,
-                    ls,
-                    wh,
-                ))
+                let id: String = row.get(0)?;
+                let desc: Option<String> = row.get(1)?;
+                let ts: String = row.get(2)?;
+                let ls: Option<String> = row.get(3)?;
+                let wh: Option<String> = row.get(4)?;
+                Ok((id, desc, ts, ls, wh))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?
             .into_iter()
-            .map(|(id, ts, ls, wh)| {
+            .map(|(id, desc, ts, ls, wh)| {
                 let aliases = self.get_aliases_inner(&conn, tenant, &id);
                 Agent {
                     id,
+                    description: desc,
                     aliases,
                     created_at: Database::parse_ts(&ts),
                     last_seen: ls.map(|s| Database::parse_ts(&s)),
@@ -523,12 +533,20 @@ impl Database {
         Ok(agents)
     }
 
-    pub fn register_agent(&self, tenant: &str, id: &str, aliases: Option<&[String]>, webhook: Option<&str>) -> Result<Agent> {
+    pub fn register_agent(&self, tenant: &str, id: &str, aliases: Option<&[String]>, webhook: Option<&str>, description: Option<&str>) -> Result<Agent> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT OR IGNORE INTO agents (tenant, id) VALUES (?1, ?2)",
             params![tenant, id],
         )?;
+
+        // Update description if provided
+        if let Some(desc) = description {
+            conn.execute(
+                "UPDATE agents SET description = ?1 WHERE tenant = ?2 AND id = ?3",
+                params![desc, tenant, id],
+            )?;
+        }
 
         // Update webhook if provided
         if let Some(wh) = webhook {
@@ -549,16 +567,17 @@ impl Database {
             }
         }
 
-        let (ts, ls, wh): (String, Option<String>, Option<String>) = conn.query_row(
-            "SELECT created_at, last_seen, webhook FROM agents WHERE tenant = ?1 AND id = ?2",
+        let (desc, ts, ls, wh): (Option<String>, String, Option<String>, Option<String>) = conn.query_row(
+            "SELECT description, created_at, last_seen, webhook FROM agents WHERE tenant = ?1 AND id = ?2",
             params![tenant, id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )?;
 
         let agent_aliases = self.get_aliases_inner(&conn, tenant, id);
 
         Ok(Agent {
             id: id.to_string(),
+            description: desc,
             aliases: agent_aliases,
             created_at: Database::parse_ts(&ts),
             last_seen: ls.map(|s| Database::parse_ts(&s)),
@@ -605,20 +624,23 @@ impl Database {
     pub fn get_agent(&self, tenant: &str, id: &str) -> Result<Option<Agent>> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, created_at, last_seen, webhook FROM agents WHERE tenant = ?1 AND id = ?2",
+            "SELECT id, description, created_at, last_seen, webhook FROM agents WHERE tenant = ?1 AND id = ?2",
             params![tenant, id],
             |row| {
-                let ts: String = row.get(1)?;
-                let ls: Option<String> = row.get(2)?;
-                let wh: Option<String> = row.get(3)?;
-                Ok((row.get::<_, String>(0)?, ts, ls, wh))
+                let id: String = row.get(0)?;
+                let desc: Option<String> = row.get(1)?;
+                let ts: String = row.get(2)?;
+                let ls: Option<String> = row.get(3)?;
+                let wh: Option<String> = row.get(4)?;
+                Ok((id, desc, ts, ls, wh))
             },
         )
         .optional()?
-        .map(|(id, ts, ls, wh)| {
+        .map(|(id, desc, ts, ls, wh)| {
             let aliases = self.get_aliases_inner(&conn, tenant, &id);
             Ok(Agent {
                 id,
+                description: desc,
                 aliases,
                 created_at: Database::parse_ts(&ts),
                 last_seen: ls.map(|s| Database::parse_ts(&s)),
