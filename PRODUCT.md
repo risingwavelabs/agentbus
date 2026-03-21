@@ -353,21 +353,23 @@ bh delegate <worker> "<task>"    # send task, returns immediately with thread-id
 bh wait                          # block until all pending results arrive
 ```
 
-### Team
+### Groups & Keys
 
 ```bash
-bh team ls                       # list team members (API keys)
-bh team invite                   # generate a new API key
-bh team revoke <key-prefix>      # revoke a key
+bh group create <name>                        # create a group (admin only)
+bh group ls                                   # list groups (admin only)
+bh group invite <group> --description "..."   # generate group key (admin only)
+bh group keys                                 # list API keys
+bh group revoke <key-prefix>                  # revoke a key (admin only)
 ```
 
 ## Permissions model
 
-### Team boundary
+### Group boundary
 
-API key = team boundary. Each API key belongs to a tenant. Tenants are fully isolated from each other.
+API key = group boundary. Each group key belongs to a group. Groups are fully isolated from each other.
 
-A single tenant can have multiple API keys (one per team member).
+A single group can have multiple API keys (one per member). Admin keys are server-level and can manage all groups.
 
 ### Within a team
 
@@ -412,7 +414,7 @@ Server currently does not validate the `from` field on messages. Worker A can se
 | `bh worker add/remove/ls/temp` | Remote worker lifecycle management |
 | `bh delegate` + `bh wait` | Non-blocking task delegation + result collection |
 | `bh login` | One-time connection setup + skill installation |
-| `bh team` | Team member management |
+| `bh group` | Group and key management |
 | Claude Code skill | Installed by login, teaches Claude Code how to delegate |
 | Worker instructions | Per-worker specialization definition |
 | Role templates | Preset common worker roles |
@@ -421,7 +423,7 @@ Server currently does not validate the `from` field on messages. Worker A can se
 
 | Feature | When it's needed |
 |---------|-----------------|
-| Team roles (admin / member) | Team exceeds 5-10 people |
+| Per-group roles (admin / member) | Group exceeds 5-10 people |
 | Per-worker access control (who can call whom) | Sensitive workers (e.g., one that can deploy) |
 | Audit log | Compliance requirements |
 | Worker auto-scaling | Variable load patterns |

@@ -23,381 +23,245 @@ bh --help
 
 ---
 
-## Test 1: Single Machine — Basic Flow
+## Test 1: Server Bootstrap + Login
 
-**Goal**: Verify the core loop works: server → worker → delegate → wait.
-
-### Steps
+**Goal**: Verify server starts, generates admin key, and login works.
 
 Terminal 1 — start server:
 ```bash
 bh server
+# Expected:
+#   Admin key: bh_<long-key>
+#   Save this key. Use it to login:
+#   bh login http://127.0.0.1:8080 --key bh_<long-key>
 ```
 
-Expected output:
-```
-INFO bh::daemon: Node daemon started (local)
-INFO bh::server: Boxhouse server starting address=127.0.0.1:8080
-```
-
-Terminal 2 — use CLI:
+Terminal 2 — login:
 ```bash
-# 1. Login
-bh login http://localhost:8080
-# Expected: "Connected to Boxhouse server v0.1.0"
-# Expected: "Claude Code skill installed."
-# Expected: "Login complete. Server: http://localhost:8080"
+# Login with the admin key printed above
+bh login http://localhost:8080 --key <admin-key>
+# Expected: "Connected", "Claude Code skill installed.", "Login complete."
 
-# 2. Verify skill was installed (directory with SKILL.md)
+# Verify skill installed
 ls ~/.claude/skills/bh/SKILL.md
 cat ~/.claude/skills/bh/SKILL.md | head -5
 # Expected: YAML frontmatter with name: bh
 
-# 3. Verify config was created
+# Verify config
 cat ~/.bh/config.toml
-# Expected: server_url and lead_id
+# Expected: server_url, lead_id, api_key
+```
 
-# 4. Check status
-bh status
-# Expected: connected, 1 node (local), 0 workers, no pending tasks
+### What to Check
 
-# 5. Add a worker
-bh worker add reviewer --instructions "You are a code reviewer. Be concise — max 2 sentences."
+- [ ] Server prints admin key on first start
+- [ ] Second start does NOT print a new key (reuses existing)
+- [ ] `bh login --key` succeeds
+- [ ] Skill file created at `~/.claude/skills/bh/SKILL.md`
+- [ ] Config saved at `~/.bh/config.toml` with api_key
 
-# 6. List workers
+---
+
+## Test 2: Groups + Access Control
+
+**Goal**: Verify group isolation and admin-only operations.
+
+```bash
+# As admin:
+bh group create frontend
+bh group create ml-team
+bh group ls
+# Expected: 2 groups
+
+# Invite members
+bh group invite frontend --description "alice"
+# Expected: prints key for alice. SAVE IT.
+
+bh group invite ml-team --description "bob"
+# Expected: prints key for bob. SAVE IT.
+
+# List all keys (admin sees all)
+bh group keys
+# Expected: 3 keys (admin + alice + bob) with role and group columns
+
+# Login as alice
+bh login http://localhost:8080 --key <alice-key>
+bh worker add reviewer --instructions "Review code."
 bh worker ls
-# Expected: reviewer, local, active
+# Expected: only sees reviewer
 
-# 7. Delegate a task
-bh delegate reviewer "What are the benefits of Rust's ownership model?"
-# Expected: prints a thread-id like "thread-abc12345"
+# Login as bob
+bh login http://localhost:8080 --key <bob-key>
+bh worker add ml-agent --instructions "ML tasks."
+bh worker ls
+# Expected: only sees ml-agent (NOT reviewer)
 
-# 8. Wait for result
+# Non-admin cannot create groups
+bh group create hacked
+# Expected: "Error: admin key required"
+```
+
+### What to Check
+
+- [ ] Groups created successfully
+- [ ] Group keys scoped to their group
+- [ ] Alice only sees frontend workers
+- [ ] Bob only sees ml-team workers
+- [ ] Non-admin cannot create groups or revoke keys
+
+---
+
+## Test 3: Basic Worker Flow
+
+**Goal**: Verify delegate + wait end-to-end.
+
+```bash
+bh login http://localhost:8080 --key <group-key>
+bh worker add reviewer --instructions "Be concise — max 1 sentence."
+bh delegate reviewer "Is Rust a good language?"
+# Expected: prints thread-id immediately (non-blocking)
+
 bh wait
-# Expected: blocks for a few seconds, then:
-# "reviewer done (Xs): <response about ownership>"
-# "All done."
+# Expected: blocks, then prints result
 
-# 9. Remove worker
 bh worker remove reviewer
-bh worker ls
-# Expected: "No workers registered."
-
-# 10. Logout
-bh logout
-# Expected: "Logged out."
-ls ~/.claude/skills/bh/
-# Expected: directory not found
-cat ~/.bh/config.toml
-# Expected: file not found
 ```
-
-### What to Check
-
-- [ ] Server starts without errors
-- [ ] `bh login` installs skill and saves config
-- [ ] `bh worker add` registers successfully
-- [ ] `bh delegate` returns a thread-id immediately (non-blocking)
-- [ ] `bh wait` blocks and eventually prints the worker's response
-- [ ] Response is coherent (Claude actually processed the task)
-- [ ] `bh worker remove` cleans up
-- [ ] `bh logout` removes skill and config
-- [ ] Server terminal shows "Processing task" and "Task completed" log lines
 
 ---
 
-## Test 2: Single Machine — Worker Temp
+## Test 4: Worker Temp
 
-**Goal**: Verify one-off temp workers work end-to-end.
-
-```bash
-# Server should be running from Test 1. If not:
-bh server &
-bh login http://localhost:8080
-
-# Run a temp task
-bh worker temp "What is the capital of France? One word only."
-# Expected: blocks, then "done (Xs): Paris"
-
-# Verify the temp worker was cleaned up
-bh worker ls
-# Expected: "No workers registered." (temp worker auto-removed)
-```
-
-### What to Check
-
-- [ ] `bh worker temp` blocks until result
-- [ ] Result is correct
-- [ ] No leftover temp workers after completion
-
----
-
-## Test 3: Single Machine — Parallel Delegation
-
-**Goal**: Verify multiple tasks can be delegated and collected.
+**Goal**: Verify one-off tasks work (non-blocking).
 
 ```bash
-bh worker add fast --instructions "Answer in exactly one word."
-bh worker add slow --instructions "Answer in exactly one sentence."
+bh worker temp "What is 2+2? Just the number."
+# Expected: prints thread-id immediately
 
-# Delegate two tasks
-bh delegate fast "Capital of Japan?"
-bh delegate slow "Explain quantum entanglement."
-
-# Check pending
-bh status
-# Expected: 2 pending tasks
-
-# Wait for both
 bh wait
-# Expected: both results arrive (possibly in different order)
-# "fast done (Xs): Tokyo"
-# "slow done (Xs): <sentence about quantum entanglement>"
-# "All done."
+# Expected: prints result, temp worker auto-cleaned
 
-# Cleanup
-bh worker remove fast
-bh worker remove slow
+bh worker ls
+# Expected: no workers (temp worker removed)
 ```
-
-### What to Check
-
-- [ ] Both tasks delegated without blocking
-- [ ] `bh status` shows 2 pending tasks
-- [ ] `bh wait` collects both results
-- [ ] Both responses are correct
-- [ ] "All done." printed after both complete
 
 ---
 
-## Test 4: Single Machine — Auth / Team
+## Test 5: Delegate from Stdin
 
-**Goal**: Verify API key auth works.
+**Goal**: Verify large content can be piped via stdin.
 
 ```bash
-# Start with no auth (server should be running)
-bh login http://localhost:8080
+echo "List the first 5 prime numbers." | bh delegate reviewer
+# Expected: prints thread-id
 
-# Create first API key — this enables auth
-bh team invite --description "admin"
-# Expected: prints the full key (bh_...) and prefix
-# SAVE THE KEY — you'll need it
-
-# Try a command without the key
-bh logout
-bh login http://localhost:8080
-bh worker ls
-# Expected: "Error: missing X-API-Key header"
-
-# Login with the key
-bh login http://localhost:8080 --key <THE_KEY>
-bh worker ls
-# Expected: "No workers registered." (auth passes)
-
-# Create a second key
-bh team invite --description "ci-bot"
-
-# List keys
-bh team ls
-# Expected: 2 keys with prefixes and descriptions
-
-# Revoke the second key
-bh team revoke <second-key-prefix>
-bh team ls
-# Expected: 1 key remaining
+bh wait
+# Expected: prints result
 ```
-
-### What to Check
-
-- [ ] No auth required before any keys exist
-- [ ] After first key: all protected endpoints require `X-API-Key`
-- [ ] `/health` still works without auth (public endpoint)
-- [ ] `bh login --key` stores key, subsequent commands pass auth
-- [ ] `bh team invite` generates unique keys
-- [ ] `bh team revoke` invalidates the key
-- [ ] Invalid/revoked keys are rejected with 401
 
 ---
 
-## Test 5: Single Machine — Worker with File Access
+## Test 6: Worker Lifecycle
 
-**Goal**: Verify workers can use Claude Code's tools (read files, run commands).
+**Goal**: Verify info, update, stop, start, logs.
 
 ```bash
-bh worker add code-reader --instructions "You are a code assistant. When asked about a file, read it and summarize. Be concise."
+bh worker add test-worker --instructions "Be brief."
+bh worker info test-worker
+# Expected: shows name, node, status, registered_by, instructions
 
-# Task that requires reading a file
-bh delegate code-reader "Read the file $(pwd)/Cargo.toml and list the dependencies."
+bh worker update test-worker --instructions "Be very brief."
+bh worker info test-worker | grep Instructions
+# Expected: "Be very brief."
+
+bh worker stop test-worker
+bh worker ls
+# Expected: status = stopped
+
+bh worker start test-worker
+bh worker ls
+# Expected: status = active
+
+# Delegate and check logs
+bh delegate test-worker "Say hello"
 bh wait
-# Expected: worker reads Cargo.toml and lists dependencies (tokio, axum, etc.)
+bh worker logs test-worker
+# Expected: shows request + done messages
 
-# Task that requires running a command
-bh worker add cmd-runner --instructions "You are a system helper. Run commands when asked. Be concise."
-bh delegate cmd-runner "How many .rs files are in $(pwd)/src/? Use the glob tool to count."
-bh wait
-# Expected: "6" or similar accurate count
-
-bh worker remove code-reader
-bh worker remove cmd-runner
+bh worker remove test-worker
 ```
-
-### What to Check
-
-- [ ] Worker can read files on the machine
-- [ ] Worker can use tools (Glob, Grep, Bash, etc.)
-- [ ] Results are accurate (correct file content / count)
 
 ---
 
-## Test 6: Multi-Machine — Remote Node
+## Test 7: Worker Ownership
 
-**Goal**: Verify a remote machine can join as a worker node and execute tasks.
+**Goal**: Verify only creator can modify/delete workers.
 
-### Prerequisites
+Requires two different group keys (alice and bob in the same group, or admin + member).
 
-- Machine A (server): has Boxhouse built, reachable at `<MACHINE_A_IP>:8080`
-- Machine B (node): has Boxhouse built, has Claude Code CLI installed and authenticated
+```bash
+# Login as alice, create a worker
+bh login http://localhost:8080 --key <alice-key>
+bh worker add alice-worker --instructions "x"
 
-### Steps
+# Login as bob, try to remove it
+bh login http://localhost:8080 --key <bob-key>
+bh worker remove alice-worker
+# Expected: "Error: permission denied: worker was created by someone else"
+
+bh worker stop alice-worker
+# Expected: "Error: permission denied"
+
+# Bob CAN see and delegate to it
+bh worker ls
+# Expected: alice-worker is listed
+
+# Alice can remove her own worker
+bh login http://localhost:8080 --key <alice-key>
+bh worker remove alice-worker
+# Expected: success
+```
+
+---
+
+## Test 8: Multi-Machine
+
+**Goal**: Verify remote nodes.
 
 Machine A — start server:
 ```bash
-# Bind to 0.0.0.0 so remote machines can connect
 bh server --host 0.0.0.0 --port 8080
+# Save the admin key
+
+bh login http://localhost:8080 --key <admin-key>
+bh group create team
+bh group invite team --description "node-key"
+# Save the group key
 ```
 
-Machine A — login (from another terminal):
+Machine B — join as node:
 ```bash
-bh login http://localhost:8080
+bh node join http://<machine-a-ip>:8080 --name remote-box --key <group-key>
+# Expected: "Joining as node" + daemon starts
 ```
 
-Machine B — join as a node:
+Machine A — use remote node:
 ```bash
-bh node join http://<MACHINE_A_IP>:8080 --name machine-b
-# Expected: "Joining as node "machine-b" → http://<MACHINE_A_IP>:8080"
-# Expected: "Node daemon started (remote)"
-# This process stays running (it's the daemon)
-```
-
-Machine A — verify node registered:
-```bash
+bh login http://localhost:8080 --key <group-key>
 bh node ls
-# Expected:
-# NAME                 STATUS     LAST HEARTBEAT
-# local                online     <timestamp>
-# machine-b            online     <timestamp>
-```
+# Expected: local + remote-box
 
-Machine A — add worker on remote node:
-```bash
-bh worker add remote-reviewer --instructions "You are a reviewer. Be brief." --node machine-b
-bh worker ls
-# Expected:
-# NAME                 NODE       STATUS     CREATED
-# remote-reviewer      machine-b  active     <timestamp>
-```
-
-Machine A — delegate and wait:
-```bash
-bh delegate remote-reviewer "Is Python or Go better for web servers? One sentence."
+bh worker add remote-w --instructions "Be brief." --node remote-box
+bh delegate remote-w "What is 1+1?"
 bh wait
-# Expected: result comes back from machine-b
+# Expected: result comes back from remote node
 ```
-
-### What to Check
-
-- [ ] `bh node join` connects to remote server successfully
-- [ ] Node appears in `bh node ls` with "online" status
-- [ ] Worker assigned to remote node appears in `bh worker ls`
-- [ ] Delegation works: task is sent to server, remote daemon picks it up
-- [ ] Result comes back to the lead on machine A
-- [ ] Machine B's daemon shows "Processing task" / "Task completed" logs
-- [ ] The Claude CLI on machine B uses machine B's authentication (not machine A's)
 
 ### Troubleshooting
 
-If `bh node join` can't connect:
-- Check firewall: machine A port 8080 must be open
-- Check `--host 0.0.0.0` on machine A (not the default 127.0.0.1)
-- Try `curl http://<MACHINE_A_IP>:8080/health` from machine B
-
-If tasks aren't being picked up:
-- Check machine B terminal for daemon logs
-- Verify worker is assigned to the correct node: `bh worker ls`
-- Check Claude CLI is installed on machine B: `claude --version`
-
----
-
-## Test 7: Multi-Machine — With Auth
-
-**Goal**: Verify remote nodes work when auth is enabled.
-
-Machine A:
-```bash
-bh server --host 0.0.0.0 --port 8080
-# In another terminal:
-bh login http://localhost:8080
-bh team invite --description "node-b-key"
-# Save the key
-```
-
-Machine B:
-```bash
-bh node join http://<MACHINE_A_IP>:8080 --name machine-b --key <THE_KEY>
-```
-
-Machine A:
-```bash
-bh login http://localhost:8080 --key <THE_KEY>
-bh node ls
-# Expected: machine-b shows up
-bh worker add test-worker --instructions "Echo the task back." --node machine-b
-bh delegate test-worker "Hello from machine A"
-bh wait
-```
-
-### What to Check
-
-- [ ] Remote node can authenticate with API key
-- [ ] Tasks are processed correctly with auth enabled
-- [ ] Without `--key`, remote node gets rejected (401)
-
----
-
-## Test 8: Multi-Machine — Mixed Nodes
-
-**Goal**: Verify workers on different nodes can be used in parallel.
-
-Machine A (server + local node):
-```bash
-bh server --host 0.0.0.0
-bh login http://localhost:8080
-bh worker add local-worker --instructions "Answer briefly." --node local
-```
-
-Machine B (remote node):
-```bash
-bh node join http://<MACHINE_A_IP>:8080 --name machine-b
-```
-
-Machine A:
-```bash
-bh worker add remote-worker --instructions "Answer briefly." --node machine-b
-
-# Delegate to both in parallel
-bh delegate local-worker "What is 2+2?"
-bh delegate remote-worker "What is 3+3?"
-bh wait
-# Expected: both results arrive
-# local-worker done: 4
-# remote-worker done: 6
-```
-
-### What to Check
-
-- [ ] Workers on different nodes execute independently
-- [ ] Both results collected by `bh wait`
-- [ ] Each worker runs on its assigned node (check logs on each machine)
+- Machine A must bind to `0.0.0.0` (not `127.0.0.1`)
+- Check firewall on port 8080
+- Verify with `curl http://<ip>:8080/health` from Machine B
+- Claude Code CLI must be installed on Machine B
 
 ---
 
@@ -406,42 +270,30 @@ bh wait
 ```bash
 # Delegate to nonexistent worker
 bh delegate nonexistent "hello"
-# Expected: error message, not a crash
+# Expected: error message
 
 # Wait with no pending tasks
 bh wait
 # Expected: "No pending tasks."
 
-# Remove nonexistent worker
-bh worker remove nonexistent
-# Expected: error message
-
-# Double login
+# Login without key
 bh login http://localhost:8080
-bh login http://localhost:8080
-# Expected: works fine (idempotent)
+# Expected: works (health check is public), but subsequent commands fail
 
 # Server not running
-bh server &  # start then kill it
-kill %1
-bh delegate reviewer "hello"
-# Expected: connection error message
+bh worker ls
+# Expected: connection error
 ```
 
 ---
 
 ## Cleanup
 
-After testing:
-
 ```bash
-# Stop server (Ctrl+C in server terminal)
+# Stop server (Ctrl+C)
 # Stop remote daemons (Ctrl+C)
 
-# Remove local state
 rm -rf ~/.bh/
 rm -rf ~/.claude/skills/bh
-
-# Remove test databases
 rm -f bh.db
 ```
