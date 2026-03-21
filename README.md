@@ -54,11 +54,11 @@ The reviewer is a separate Claude Code instance connected to Stream0. Both agent
 - **Multi-turn discussion**: agents go back and forth on the same thread (question/answer) before resolving
 - **Task delegation**: your agent hands off a subtask and polls for the result
 
+## Getting started
+
 > **Note:** Stream0 uses Claude Code's [channel](https://docs.anthropic.com/en/docs/claude-code/channels) capability, which is currently in Anthropic's experimental research preview. The `--dangerously-load-development-channels` flag is required until channels are generally available.
 
 > **Warning:** Worker agents launched by `stream0 agent start` run with `--dangerously-skip-permissions`, which bypasses all permission checks. Only run worker agents in trusted environments.
-
-## Getting started
 
 ### 1. Install and start the server
 
