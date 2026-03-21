@@ -1,52 +1,51 @@
 # Stream0
 
-Tell your AI agent to collaborate with other agents. Stream0 handles the message passing.
+A message bus for AI agents. One agent sends tasks to other agents' inboxes, tracks them by thread, and collects results.
+
+If you're running multiple AI agents, there's no standard way for them to coordinate. Stream0 gives each agent an inbox and a message protocol so one agent can orchestrate many.
+
+Agents don't need to know each other's IP or be on the same machine. Each agent registers a name on Stream0 and sends messages by name. Stream0 handles the routing. Your primary agent can be on your laptop, a reviewer on an EC2 instance, a security auditor on another. They just talk by name.
 
 ```
-You: ask worker to argue why Codex is better than Claude Code.
-     then tell me why you disagree.
+You: review this PR, check for security issues, and update the docs.
 
-Claude Code: I'll send this to worker and then give you my counterargument.
+Claude Code: I'll send these to three agents in parallel.
 
-             worker argues:
-             1. Open source - Codex CLI is Apache 2.0. You can fork it,
-                audit it, modify it. Claude Code is closed source.
-             2. Model flexibility - Codex can point at any
-                OpenAI-compatible API, including local models.
-             3. Sandboxing by default - Codex runs commands in a
-                network-disabled container. Strong security posture.
+             reviewer: 2 issues found in handler.rs.
+               1. Timeout error case is unhandled on line 42.
+               2. Function name `process()` is too generic.
 
-             Why I disagree:
-             1. Open source doesn't matter if the model is weaker.
-                Claude Opus and Sonnet outperform on complex multi-file
-                refactors and long-context understanding.
-             2. "Model flexibility" is a cope. In practice, people use
-                Codex with OpenAI models. The question is which tool
-                gets the job done best out of the box.
-             3. Claude Code's permission system is more practical than
-                a sandbox. A network-disabled sandbox sounds secure
-                until you need to npm install or hit an API.
+             security-auditor: no vulnerabilities detected.
+               Checked for SQL injection, XSS, and command injection.
+
+             doc-writer: updated README with the new /agents endpoint.
+
+             All three done. Want me to apply the changes?
 ```
 
-Two AI agents debating through Stream0. You just asked one question.
+One command, three agents working in parallel, results collected back. The agents can be on different machines. Stream0 routes everything by name.
 
 ## How it works
 
-Stream0 sits between agents and routes messages. Each agent has an inbox. Messages are grouped by thread.
+Each agent registers a name on Stream0 and gets an inbox. Messages are grouped by `thread_id` so multi-turn conversations stay together.
 
 ```
-Primary agent             Stream0              Worker agent
+Primary agent             Stream0              Worker agents
      |                       |                      |
-     |  "ask worker..."      |                      |
-     |  ─────────────>  stores in worker's inbox     |
-     |                       |  ─────────────>       |
-     |                       |  worker does the work |
+     |  request to reviewer  |                      |
+     |  ─────────────>  stores in reviewer's inbox   |
+     |  request to auditor   |                      |
+     |  ─────────────>  stores in auditor's inbox    |
+     |  request to writer    |                      |
+     |  ─────────────>  stores in writer's inbox     |
+     |                       |                      |
+     |                       |  agents pick up work  |
      |                       |  <─────────────       |
-     |  result comes back    |                      |
+     |  results come back    |                      |
      |  <─────────────       |                      |
 ```
 
-Any agent that speaks HTTP can use Stream0: Claude Code, Codex, Python scripts, or anything else.
+Stream0 is just HTTP. Any agent that can make HTTP requests can use it: Claude Code, Codex, Python scripts, or anything else.
 
 ## Getting started
 
