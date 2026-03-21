@@ -79,8 +79,9 @@ const mcp = new Server(
 
 When the user asks you to collaborate with, delegate to, or consult other agents:
 1. Use the **discover** tool to see which agents are available and what they do
-2. Use the **delegate** tool to send a task and wait for the result
-3. Present the result to the user
+2. For a single agent: use **delegate** to send a task and wait for the result
+3. For multiple agents in parallel: use **send_task** for each, then **wait_results** to collect all responses
+4. Present the results to the user
 
 Examples of user requests that should trigger collaboration:
 - "find someone to review my code"
@@ -161,6 +162,44 @@ mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
           content: { type: "string", description: "Reply content as JSON string" },
         },
         required: ["to", "thread_id", "type", "content"],
+      },
+    },
+    {
+      name: "send_task",
+      description:
+        "Send a task to an agent and return immediately without waiting for a response. Returns a thread_id you can pass to wait_results later. Use this when sending tasks to multiple agents in parallel.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          to: { type: "string", description: "The agent ID to send the task to" },
+          task: { type: "string", description: "Description of what you need the agent to do" },
+          context: { type: "string", description: "Additional context like code diffs or file contents" },
+        },
+        required: ["to", "task"],
+      },
+    },
+    {
+      name: "wait_results",
+      description:
+        "Wait for results from one or more agents that were given tasks via send_task. Pass the thread_ids returned by send_task. Returns all results once every agent has responded (done or failed), or when timeout is reached.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          threads: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                thread_id: { type: "string" },
+                from: { type: "string", description: "The agent ID that should respond" },
+              },
+              required: ["thread_id", "from"],
+            },
+            description: "List of {thread_id, from} pairs to wait for",
+          },
+          timeout: { type: "number", description: "Max seconds to wait (default: 120, max: 300)" },
+        },
+        required: ["threads"],
       },
     },
     {
@@ -313,6 +352,88 @@ mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
           type: "text",
           text: `Timed out waiting for **${to}** to respond after ${timeoutSec}s (thread: ${threadId}). The agent may still be working.`,
         },
+      ],
+    };
+  }
+
+  // --- send_task (agent-auth, fire-and-forget) ---
+  if (name === "send_task") {
+    const { to, task, context } = args;
+    const threadId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    const content = { task };
+    if (context) content.context = context;
+
+    await stream0Post(`/agents/${to}/inbox`, {
+      thread_id: threadId,
+      type: "request",
+      content,
+    }, true);
+
+    console.error(`[stream0-channel] Sent task to ${to} (thread: ${threadId})`);
+
+    return {
+      content: [
+        { type: "text", text: `Task sent to **${to}** (thread: ${threadId})` },
+      ],
+    };
+  }
+
+  // --- wait_results (agent-auth, poll multiple threads) ---
+  if (name === "wait_results") {
+    const { threads, timeout: userTimeout } = args;
+    const timeoutSec = Math.min(Math.max(userTimeout || 120, 10), 300);
+    const deadline = Date.now() + timeoutSec * 1000;
+
+    // Track which threads we're still waiting for
+    const pending = new Map(); // thread_id -> from
+    for (const t of threads) pending.set(t.thread_id, t.from);
+
+    const results = []; // { from, thread_id, type, content }
+
+    console.error(`[stream0-channel] Waiting for ${pending.size} results (timeout: ${timeoutSec}s)...`);
+
+    while (pending.size > 0 && Date.now() < deadline) {
+      const pollTimeout = Math.min(25, Math.ceil((deadline - Date.now()) / 1000));
+      if (pollTimeout <= 0) break;
+
+      const result = await stream0Get(`/agents/${AGENT_ID}/inbox`, {
+        status: "unread",
+        timeout: String(pollTimeout),
+      }, true);
+
+      for (const msg of result?.messages || []) {
+        if (!pending.has(msg.thread_id)) continue;
+
+        await stream0Post(`/inbox/messages/${msg.id}/ack`, undefined, true);
+
+        if (msg.type === "done" || msg.type === "failed") {
+          results.push({
+            from: msg.from,
+            thread_id: msg.thread_id,
+            type: msg.type,
+            content: msg.content,
+          });
+          pending.delete(msg.thread_id);
+          console.error(`[stream0-channel] Got [${msg.type}] from ${msg.from} (${pending.size} remaining)`);
+        }
+      }
+    }
+
+    // Format output
+    const lines = results.map((r) => {
+      const contentText = typeof r.content === "string" ? r.content : JSON.stringify(r.content, null, 2);
+      return `### ${r.from} (${r.type})\n${contentText}`;
+    });
+
+    if (pending.size > 0) {
+      const timedOut = [...pending.values()];
+      lines.push(`\n**Timed out** waiting for: ${timedOut.join(", ")}`);
+    }
+
+    return {
+      content: [
+        { type: "text", text: `## Results (${results.length}/${threads.length})\n\n${lines.join("\n\n")}` },
       ],
     };
   }

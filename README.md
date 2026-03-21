@@ -97,6 +97,29 @@ You: ask worker to argue why Codex is better than Claude Code.
 
 Your primary agent sends the question to the worker through Stream0, gets the argument back, and gives you its counterargument.
 
+### Parallel orchestration
+
+Start three worker agents (each in its own terminal):
+
+```bash
+stream0 init claude --name reviewer --description "Code reviewer"
+claude --dangerously-load-development-channels server:stream0-channel
+
+stream0 init claude --name auditor --description "Security auditor"
+claude --dangerously-load-development-channels server:stream0-channel
+
+stream0 init claude --name writer --description "Documentation writer"
+claude --dangerously-load-development-channels server:stream0-channel
+```
+
+Then in your primary agent:
+
+```
+You: review this PR, check for security issues, and update the docs.
+```
+
+Your agent sends tasks to all three in parallel using `send_task`, then waits for all results with `wait_results`. Three agents working simultaneously, results collected back in one go.
+
 ## Authentication
 
 Stream0 uses two-layer authentication:
