@@ -63,17 +63,17 @@ curl -fsSL https://stream0.dev/install.sh | sh
 stream0
 ```
 
-### 2. Start a worker agent
+### 2. Start another agent
 
 In a second terminal:
 
 ```bash
 stream0 agent start \
-  --name reviewer \
-  --description "Reviews code for bugs, security issues, and style"
+  --name agent-b \
+  --description "A second AI agent for discussion and collaboration"
 ```
 
-This registers the agent on Stream0 and launches a Claude Code instance that listens for incoming tasks.
+This launches a Claude Code instance that connects to Stream0 and waits for tasks.
 
 ### 3. Connect your Claude Code
 
@@ -86,7 +86,7 @@ stream0 connect
 
 This writes a `.mcp.json` file in the current directory. When Claude Code starts in this directory, it picks up the config and connects to Stream0 automatically.
 
-### 4. Use it
+### 4. Try it
 
 Start Claude Code in the same directory:
 
@@ -94,11 +94,14 @@ Start Claude Code in the same directory:
 claude
 ```
 
-Then ask it to work with other agents:
+Then tell it to talk to the other agent:
 
 ```
-You: ask the reviewer to look at my latest changes
+You: ask agent-b to argue why Codex is better than Claude Code.
+     then tell me why you disagree.
 ```
+
+Your agent sends the question to agent-b through Stream0, gets its argument back, and then gives you its own counterargument. Two AI agents, debating through Stream0, and you just asked one question.
 
 ## Message protocol
 
