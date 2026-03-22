@@ -16,12 +16,13 @@ type Sessions = Arc<Mutex<HashMap<String, String>>>;
 
 // --- Local daemon (runs inside server process, direct DB access) ---
 
-pub async fn run_local(state: SharedState) {
-    tracing::info!("Node daemon started (local)");
+pub async fn run_local(state: SharedState, workspace_root: std::path::PathBuf) {
+    tracing::info!(workspace = %workspace_root.display(), "Node daemon started (local)");
 
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_TASKS));
     let sessions: Sessions = Arc::new(Mutex::new(HashMap::new()));
     let poll_interval = Duration::from_millis(POLL_INTERVAL_MS);
+    let workspace_root = Arc::new(workspace_root);
 
     loop {
         // Get workers across ALL tenants on the local node
@@ -62,11 +63,20 @@ pub async fn run_local(state: SharedState) {
                 let state = state.clone();
                 let tenant = tenant.clone();
                 let instructions = worker.instructions.clone();
+                let worker_name = worker.name.clone();
+                let workspace_root = workspace_root.clone();
                 let sessions = sessions.clone();
                 let msg = msg.clone();
 
                 tokio::spawn(async move {
                     let _permit = permit;
+
+                    // Create worker directory if needed
+                    let worker_dir = workspace_root.join(&worker_name);
+                    if let Err(e) = tokio::fs::create_dir_all(&worker_dir).await {
+                        tracing::error!(worker = worker_name, error = %e, "Failed to create worker directory");
+                        return;
+                    }
 
                     let task_content = msg
                         .content
@@ -84,12 +94,13 @@ pub async fn run_local(state: SharedState) {
                     tracing::info!(
                         worker = msg.to_agent,
                         thread = msg.thread_id,
+                        dir = %worker_dir.display(),
                         resume = resume_session.is_some(),
                         "Processing task"
                     );
 
                     let result =
-                        invoke_claude_cli(&instructions, &task_content, resume_session.as_deref())
+                        invoke_claude_cli(&instructions, &task_content, resume_session.as_deref(), Some(&worker_dir))
                             .await;
 
                     match result {
@@ -224,7 +235,7 @@ pub async fn run_remote(server_url: &str, node_id: &str, api_key: Option<&str>) 
                     );
 
                     let result =
-                        invoke_claude_cli(&instructions, &task_content, resume_session.as_deref())
+                        invoke_claude_cli(&instructions, &task_content, resume_session.as_deref(), None)
                             .await;
 
                     match result {
@@ -279,9 +290,14 @@ async fn invoke_claude_cli(
     instructions: &str,
     task: &str,
     resume_session: Option<&str>,
+    working_dir: Option<&std::path::Path>,
 ) -> anyhow::Result<ClaudeOutput> {
     let mut cmd = tokio::process::Command::new("claude");
     cmd.args(["--print", "--output-format", "json"]);
+
+    if let Some(dir) = working_dir {
+        cmd.current_dir(dir);
+    }
 
     if let Some(session_id) = resume_session {
         cmd.args(["--resume", session_id]);

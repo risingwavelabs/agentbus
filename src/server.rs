@@ -552,10 +552,16 @@ pub async fn run(config: ServerConfig) {
 
     let state = Arc::new(AppState { db });
 
+    // Derive workspace root from DB path
+    let workspace_root = std::path::Path::new(&config.db_path)
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .join("workers");
+
     // Spawn daemon for "local" node
     let daemon_state = state.clone();
     tokio::spawn(async move {
-        daemon::run_local(daemon_state).await;
+        daemon::run_local(daemon_state, workspace_root).await;
     });
 
     // Public routes
