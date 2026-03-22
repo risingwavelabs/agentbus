@@ -86,7 +86,7 @@ impl BhClient {
         if let Ok(err) = serde_json::from_str::<ErrorResponse>(&body) {
             anyhow::bail!("{}", err.error);
         }
-        anyhow::bail!("HTTP {} — {}", status, body);
+        anyhow::bail!("HTTP {}: {}", status, body);
     }
 
     // --- Health ---

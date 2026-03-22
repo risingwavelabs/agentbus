@@ -184,7 +184,7 @@ impl CliConfig {
     /// Generate the core skill content (agent-agnostic).
     pub fn skill_content(server_url: &str) -> String {
         format!(
-r#"# Box0 (`b0`) — Agent Delegation
+r#"# Box0 (`b0`) Agent Delegation
 
 You have access to a team of specialized AI workers managed by Box0.
 The server is at: {server_url}
@@ -221,9 +221,9 @@ b0 worker remove <name>
 
 Do NOT just forward the user's words. Compose a complete, actionable prompt:
 
-1. **Gather context** — which repo, branch, files, what changed
-2. **Be specific** — include file paths, line numbers, relevant details
-3. **State the goal** — what the worker should produce
+1. **Gather context**: which repo, branch, files, what changed
+2. **Be specific**: include file paths, line numbers, relevant details
+3. **State the goal**: what the worker should produce
 
 Bad: "review this PR"
 Good: "Review the changes on branch feature-timeout in this repo. The PR adds timeout handling to src/handler.rs. Focus on correctness and edge cases. Cite line numbers."

@@ -1,16 +1,16 @@
 # Box0
 
-You have one AI agent. But some tasks need three. Box0 lets you spin up a team of specialized AI workers and delegate tasks to them — from your terminal.
+Box0 is an agent platform for deploying and managing AI workers across machines. It provides the infrastructure to run multiple specialized AI agents, delegate tasks to them, and collect results. Any agent with shell access (Claude Code, Codex, or a custom script) can act as a lead.
 
-## The Problem
+## What it does
 
-You're using Claude Code (or Codex). You ask it to compare two tools. It gives you one perspective. You want three independent viewpoints, running in parallel, coming back with different angles. Your single agent can't do that.
+- **Worker management.** Define named agents with specialized instructions. Deploy them on one machine or distribute across many.
+- **Task delegation.** Send tasks to workers from the CLI. Non-blocking. Workers execute in parallel.
+- **Multi-machine.** Workers run on remote nodes. The server routes tasks. Each node uses its own local credentials and compute.
+- **Multi-tenant.** Groups provide full isolation. Multiple teams share one server without seeing each other's workers or data.
+- **Agent integration.** First-class skill installation for Claude Code and Codex. Your lead agent learns to delegate automatically.
 
-## The Solution
-
-Box0 turns your single agent into a **lead** that manages a team of **workers**. Each worker is its own Claude instance with its own instructions. They run in parallel, on the same machine or across multiple machines.
-
-## Example: Three Agents Debate "Claude Code vs Codex"
+## Quick example: three agents debate "Claude Code vs Codex"
 
 ```bash
 # Start the server (one-time setup)
@@ -34,7 +34,7 @@ b0 worker add pragmatist \
 # Fire off three parallel tasks
 b0 delegate ux-expert "Compare Claude Code and OpenAI Codex CLI. Which one provides a better developer experience and why?"
 b0 delegate architect "Compare Claude Code and OpenAI Codex CLI from a technical architecture perspective. Strengths, weaknesses, trade-offs."
-b0 delegate pragmatist "Claude Code vs Codex CLI — which one actually makes engineers more productive? Be honest and specific."
+b0 delegate pragmatist "Claude Code vs Codex CLI: which one actually makes engineers more productive? Be honest and specific."
 
 # Wait for all three to come back
 b0 wait

@@ -7,7 +7,7 @@ mod server;
 use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(name = "b0", about = "Box0 — agent platform", version)]
+#[command(name = "b0", about = "Box0 agent platform", version)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -676,7 +676,7 @@ async fn cmd_group_invite(group: &str, description: &str) {
         Ok(resp) => {
             println!("API key created for group \"{}\":", resp.key_prefix);
             println!("  Key: {}", resp.key);
-            println!("\nSave this key — it won't be shown again.");
+            println!("\nSave this key. It won't be shown again.");
         }
         Err(e) => {
             eprintln!("Error: {}", e);

@@ -27,7 +27,7 @@ b0 --help
 
 **Goal**: Verify server starts, generates admin key, and login works.
 
-Terminal 1 — start server:
+Terminal 1 - start server:
 ```bash
 b0 server
 # Expected:
@@ -36,7 +36,7 @@ b0 server
 #   b0 login http://127.0.0.1:8080 --key b0_<long-key>
 ```
 
-Terminal 2 — login:
+Terminal 2 - login:
 ```bash
 # Login with the admin key printed above
 b0 login http://localhost:8080 --key <admin-key>
@@ -125,7 +125,7 @@ b0 group create hacked
 
 ```bash
 b0 login http://localhost:8080 --key <group-key>
-b0 worker add reviewer --instructions "Be concise — max 1 sentence."
+b0 worker add reviewer --instructions "Be concise - max 1 sentence."
 b0 delegate reviewer "Is Rust a good language?"
 # Expected: prints thread-id immediately (non-blocking)
 
@@ -235,7 +235,7 @@ b0 worker remove alice-worker
 
 **Goal**: Verify remote nodes.
 
-Machine A — start server:
+Machine A - start server:
 ```bash
 b0 server --host 0.0.0.0 --port 8080
 # Save the admin key
@@ -246,13 +246,13 @@ b0 group invite team --description "node-key"
 # Save the group key
 ```
 
-Machine B — join as node:
+Machine B - join as node:
 ```bash
 b0 node join http://<machine-a-ip>:8080 --name remote-box --key <group-key>
 # Expected: "Joining as node" + daemon starts
 ```
 
-Machine A — use remote node:
+Machine A - use remote node:
 ```bash
 b0 login http://localhost:8080 --key <group-key>
 b0 node ls
