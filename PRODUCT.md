@@ -357,19 +357,18 @@ b0 wait                          # block until all pending results arrive
 
 ```bash
 b0 group create <name>                        # create a group (admin only)
-b0 group ls                                   # list groups (admin only)
-b0 group invite <group> --description "..."   # generate group key (admin only)
-b0 group keys                                 # list API keys
-b0 group revoke <key-prefix>                  # revoke a key (admin only)
+b0 group ls                                   # list your groups
+b0 invite <name>                              # create user (admin only)
+b0 group add-member <group> <user-id>         # add user to group
 ```
 
 ## Permissions model
 
 ### Group boundary
 
-API key = group boundary. Each group key belongs to a group. Groups are fully isolated from each other.
+Each user has a unique key. Users belong to groups. Groups are fully isolated from each other.
 
-A single group can have multiple API keys (one per member). Admin keys are server-level and can manage all groups.
+Groups provide workspace isolation. Workers and messages in one group are invisible to other groups.
 
 ### Within a team
 

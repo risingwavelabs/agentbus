@@ -50,33 +50,27 @@ export PATH="$PWD/target/release:$PATH"
 
 b0 server
 #   Admin key: b0_abc123...
-#   Save this key.
+#   User: admin (u-xxxx)
+# Server is ready. Admin user auto-created with personal group "admin".
+# On the server machine, you're already logged in.
 ```
 
-### 2. Set up a group
+### 2. Create workers
+
+The admin user has a personal group called "admin". Create workers in it:
 
 ```bash
-b0 login http://localhost:8080 --key b0_abc123...
-b0 group create my-group
-b0 group invite my-group --description "me"
-#   Key: b0_def456...
-b0 login http://localhost:8080 --key b0_def456...
-```
-
-### 3. Create workers
-
-```bash
-b0 worker add ux-expert \
+b0 worker add --group admin ux-expert \
   --instructions "You are a UX researcher. Evaluate developer tools from the perspective of daily workflow, ergonomics, and productivity."
 
-b0 worker add architect \
+b0 worker add --group admin architect \
   --instructions "You are a software architect. Evaluate tools from the perspective of technical capabilities, extensibility, and system design."
 
-b0 worker add pragmatist \
+b0 worker add --group admin pragmatist \
   --instructions "You are a pragmatic tech lead. Cut through hype. Evaluate based on what actually ships faster with fewer bugs."
 ```
 
-### 4. Install the skill for your lead agent
+### 3. Install the skill for your lead agent
 
 For Claude Code:
 
@@ -96,7 +90,7 @@ For other agents:
 b0 skill show  # prints skill content to stdout, paste into your agent's instructions
 ```
 
-### 5. Use it
+### 4. Use it
 
 Open Claude Code (or Codex) and talk normally:
 
@@ -107,11 +101,34 @@ You: ask ux-expert, architect, and pragmatist whether Claude Code or Codex
 ```
 
 Claude Code will:
-1. Run `b0 delegate ux-expert "..."`, `b0 delegate architect "..."`, `b0 delegate pragmatist "..."`
+1. Run `b0 delegate --group admin ux-expert "..."`, etc. for each worker
 2. Run `b0 wait` to collect all three results
 3. Synthesize the arguments and present a conclusion
 
 Three workers, three perspectives, one answer back to you.
+
+## Adding team members
+
+```bash
+# Admin invites alice (creates user + personal group "alice")
+b0 invite alice
+#   User "alice" created (ID: u-xxxx)
+#   Key: b0_def456...
+
+# Create a shared group and add alice to it
+b0 group create dev-team
+b0 group add-member dev-team u-xxxx
+
+# Alice logs in from her laptop
+b0 login http://server:8080 --key b0_def456...
+
+# Alice can work in the shared group
+b0 worker add --group dev-team reviewer --instructions "Code reviewer."
+b0 delegate --group dev-team reviewer "Review src/main.rs"
+b0 wait
+```
+
+Each user has their own key. Users can be in multiple groups. Workers in a group are visible to all group members.
 
 ## How it works
 
@@ -139,7 +156,7 @@ Workers use the machine's existing authentication (OAuth or API key). No special
 Don't want to create a named worker? Use `worker temp`:
 
 ```bash
-b0 worker temp "Summarize the top 5 differences between Rust and Go."
+b0 worker temp --group admin "Summarize the top 5 differences between Rust and Go."
 b0 wait
 ```
 
@@ -151,42 +168,49 @@ Run workers on different machines:
 
 ```bash
 # Machine A: start server
-b0 server --host 0.0.0.0
+b0 server
 
-# Machine B: join as a worker node
-b0 node join http://machine-a:8080 --name gpu-box --key <key>
+# Machine B: join as a worker node (using your key)
+b0 node join http://machine-a:8080 --name gpu-box --key b0_abc123...
 
 # Machine A: add worker on the remote node
-b0 worker add ml-agent --instructions "ML specialist." --node gpu-box
-b0 delegate ml-agent "Analyze this dataset."
+b0 worker add --group admin ml-agent --instructions "ML specialist." --node gpu-box
+b0 delegate --group admin ml-agent "Analyze this dataset."
 b0 wait
 ```
 
-The task is routed to Machine B. Claude CLI runs there, using Machine B's credentials and compute.
+The task is routed to Machine B. Claude CLI runs there, using Machine B's credentials and compute. Only the node owner can deploy workers to their machine.
 
 ## CLI reference
 
 ```
 b0 server [--host] [--port] [--db]       Start server
-b0 login <url> --key <key>               Connect
+b0 login <url> --key <key>               Connect from another machine
 b0 logout                                Disconnect
 b0 reset                                 Clean slate
 b0 status                                Show connection info
+b0 invite <name>                         Create user (admin only)
 
-b0 worker add <name> --instructions "..."  [--node <node>]
-b0 worker ls / info / update / stop / start / logs / remove
-b0 worker temp "<task>"                  One-off task (non-blocking)
+b0 worker add --group <g> <name> --instructions "..." [--node <n>]
+b0 worker ls --group <g>
+b0 worker info / update / stop / start / logs / remove --group <g> <name>
+b0 worker temp --group <g> "<task>"      One-off task (non-blocking)
 
-b0 delegate <worker> "<task>"            Send task (non-blocking)
-b0 delegate <worker>                     Read task from stdin
-b0 wait                                  Collect results
-b0 reply <thread-id> "<answer>"          Answer a worker's question
+b0 delegate --group <g> <worker> "<task>"   Send task (non-blocking)
+b0 delegate --group <g> <worker>            Read task from stdin
+b0 wait                                     Collect results
+b0 reply --group <g> <thread-id> "<answer>" Answer a worker's question
 
 b0 node join <url> [--name] [--key]      Join as worker node
 b0 node ls                               List nodes
 
-b0 group create / ls / invite / keys / revoke
-b0 skill install <agent> / uninstall / show
+b0 group create <name>                   Create group
+b0 group ls                              List your groups
+b0 group add-member <group> <user-id>    Add user to group
+
+b0 skill install claude-code / codex     Install agent skill
+b0 skill uninstall <agent>               Remove
+b0 skill show                            Print to stdout
 ```
 
 ## License
