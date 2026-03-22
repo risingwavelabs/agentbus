@@ -444,7 +444,7 @@ async fn invoke_codex_cli(
     let prompt = format!("{}\n\n{}", instructions, task);
 
     let mut cmd = tokio::process::Command::new("codex");
-    cmd.args(["exec", "--json", "--full-auto"]);
+    cmd.args(["exec", "--json", "--full-auto", "--skip-git-repo-check"]);
 
     if let Some(dir) = working_dir {
         cmd.args(["-C", &dir.to_string_lossy()]);
@@ -489,19 +489,24 @@ async fn invoke_codex_cli(
 }
 
 fn parse_codex_jsonl(stdout: &str) -> anyhow::Result<RuntimeOutput> {
-    // Codex --json outputs JSONL. Extract the last message content.
+    // Codex --json outputs JSONL. Extract agent message text.
     let mut last_text = String::new();
     for line in stdout.lines() {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-            // Look for message events with assistant content
+            // item.completed with item.text (primary format)
+            if json["type"].as_str() == Some("item.completed") {
+                if let Some(text) = json["item"]["text"].as_str() {
+                    last_text = text.to_string();
+                }
+            }
+            // Also check output_text and content as fallbacks
+            if let Some(text) = json["output_text"].as_str() {
+                last_text = text.to_string();
+            }
             if json["type"].as_str() == Some("message") {
                 if let Some(content) = json["content"].as_str() {
                     last_text = content.to_string();
                 }
-            }
-            // Also check for output_text in response events
-            if let Some(text) = json["output_text"].as_str() {
-                last_text = text.to_string();
             }
         }
     }

@@ -10,6 +10,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 use tokio::signal;
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 
 use crate::config::ServerConfig;
 use crate::daemon;
@@ -622,9 +623,16 @@ pub async fn run(config: ServerConfig) {
         .route("/users/invite", post(invite_user_handler))
         .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
 
+    // Serve the web dashboard from the web/ directory.
+    // Falls back to index.html for SPA hash-routing support.
+    let web_dir = std::path::Path::new("web");
+    let serve_dir = ServeDir::new(web_dir)
+        .fallback(tower_http::services::ServeFile::new(web_dir.join("index.html")));
+
     let app = Router::new()
         .merge(public)
         .merge(protected)
+        .fallback_service(serve_dir)
         .layer(CorsLayer::permissive())
         .with_state(state);
 

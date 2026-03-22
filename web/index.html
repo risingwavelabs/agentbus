@@ -1,0 +1,1585 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Box0 Dashboard</title>
+<style>
+:root {
+  --bg: #fafafa;
+  --bg-card: #ffffff;
+  --bg-sidebar: #1a1a2e;
+  --bg-sidebar-hover: #16213e;
+  --bg-sidebar-active: #0f3460;
+  --text: #1a1a2e;
+  --text-secondary: #6b7280;
+  --text-sidebar: #e2e8f0;
+  --border: #e5e7eb;
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --danger: #ef4444;
+  --danger-hover: #dc2626;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --error: #ef4444;
+  --radius: 6px;
+  --shadow: 0 1px 3px rgba(0,0,0,0.08);
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --mono: "SF Mono", "Fira Code", "Fira Mono", monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+}
+
+/* Login page */
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  background: var(--bg-sidebar);
+}
+
+.login-box {
+  background: var(--bg-card);
+  border-radius: 8px;
+  padding: 40px;
+  width: 380px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+}
+
+.login-box h1 {
+  font-size: 24px;
+  margin-bottom: 8px;
+}
+
+.login-box p {
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+  font-size: 14px;
+}
+
+.login-box input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-family: var(--mono);
+  margin-bottom: 16px;
+}
+
+.login-box input:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+}
+
+.login-error {
+  color: var(--error);
+  font-size: 13px;
+  margin-bottom: 12px;
+  display: none;
+}
+
+/* Layout */
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 220px;
+  background: var(--bg-sidebar);
+  color: var(--text-sidebar);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.sidebar-logo {
+  padding: 20px 20px 12px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.sidebar-logo span {
+  font-weight: 300;
+  opacity: 0.7;
+}
+
+.sidebar-nav {
+  padding: 12px 0;
+  flex: 1;
+}
+
+.sidebar-nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  color: var(--text-sidebar);
+  text-decoration: none;
+  font-size: 14px;
+  transition: background 0.15s;
+}
+
+.sidebar-nav a:hover {
+  background: var(--bg-sidebar-hover);
+}
+
+.sidebar-nav a.active {
+  background: var(--bg-sidebar-active);
+  font-weight: 600;
+}
+
+.sidebar-nav a .nav-icon {
+  width: 18px;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.sidebar-group {
+  padding: 12px 20px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+}
+
+.sidebar-group label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.5;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.sidebar-group select {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  border: 1px solid rgba(255,255,255,0.15);
+  background: rgba(255,255,255,0.08);
+  color: var(--text-sidebar);
+  font-size: 13px;
+  font-family: var(--font);
+}
+
+.sidebar-group select option {
+  background: var(--bg-sidebar);
+  color: var(--text-sidebar);
+}
+
+.sidebar-footer {
+  padding: 16px 20px;
+  border-top: 1px solid rgba(255,255,255,0.08);
+  font-size: 13px;
+}
+
+.sidebar-footer .user-name {
+  opacity: 0.7;
+  margin-bottom: 8px;
+}
+
+.sidebar-footer button {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.2);
+  color: var(--text-sidebar);
+  padding: 5px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.sidebar-footer button:hover {
+  background: rgba(255,255,255,0.08);
+}
+
+/* Main content */
+.main-content {
+  flex: 1;
+  padding: 32px;
+  overflow-y: auto;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.page-header h2 {
+  font-size: 22px;
+  font-weight: 600;
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius);
+  border: none;
+  font-size: 13px;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background 0.15s;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #fff;
+}
+
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-danger:hover {
+  background: var(--danger-hover);
+}
+
+.btn-outline {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.btn-outline:hover {
+  background: var(--bg);
+}
+
+.btn-sm {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.btn-icon {
+  padding: 4px 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  border-radius: var(--radius);
+}
+
+.btn-icon:hover {
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* Cards */
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.card-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.card-body {
+  padding: 20px;
+}
+
+/* Tables */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th {
+  text-align: left;
+  padding: 10px 16px;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+td {
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tr:hover td {
+  background: rgba(59,130,246,0.02);
+}
+
+/* Status dots */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.status-dot.active, .status-dot.online, .status-dot.done, .status-dot.read {
+  background: var(--success);
+}
+
+.status-dot.stopped, .status-dot.offline, .status-dot.failed {
+  background: var(--error);
+}
+
+.status-dot.pending, .status-dot.unread {
+  background: var(--warning);
+}
+
+/* Forms */
+.form-group {
+  margin-bottom: 16px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 4px;
+  color: var(--text-secondary);
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-family: var(--font);
+}
+
+.form-group textarea {
+  font-family: var(--mono);
+  font-size: 13px;
+  min-height: 100px;
+  resize: vertical;
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.1);
+}
+
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.form-row .form-group {
+  flex: 1;
+}
+
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal {
+  background: var(--bg-card);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+  width: 520px;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+.modal-footer {
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--text-secondary);
+}
+
+.empty-state p {
+  margin-bottom: 16px;
+}
+
+/* Toast */
+.toast-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toast {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-size: 13px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  animation: slide-in 0.2s ease-out;
+  max-width: 360px;
+}
+
+.toast.error {
+  border-left: 3px solid var(--error);
+}
+
+.toast.success {
+  border-left: 3px solid var(--success);
+}
+
+@keyframes slide-in {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* Thread messages */
+.thread-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.thread-msg {
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.thread-msg-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.thread-msg-header strong {
+  color: var(--text);
+}
+
+.thread-msg-type {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.thread-msg-type.request { background: #dbeafe; color: #1d4ed8; }
+.thread-msg-type.question { background: #fef3c7; color: #92400e; }
+.thread-msg-type.answer { background: #d1fae5; color: #065f46; }
+.thread-msg-type.done { background: #d1fae5; color: #065f46; }
+.thread-msg-type.failed { background: #fee2e2; color: #991b1b; }
+.thread-msg-type.message { background: #f3f4f6; color: #374151; }
+
+.thread-msg-content {
+  white-space: pre-wrap;
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* Truncated text */
+.truncated {
+  max-width: 300px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Badge */
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-count {
+  background: var(--primary);
+  color: #fff;
+}
+
+/* Worker detail */
+.detail-grid {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 8px 16px;
+  font-size: 13px;
+}
+
+.detail-grid dt {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.detail-grid dd {
+  word-break: break-word;
+}
+
+/* Loading spinner */
+.spinner {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.loading {
+  text-align: center;
+  padding: 32px;
+  color: var(--text-secondary);
+}
+
+/* Clickable row */
+.clickable { cursor: pointer; }
+.clickable:hover td { background: rgba(59,130,246,0.04); }
+
+/* Pre block for instructions */
+.instructions-block {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  white-space: pre-wrap;
+  line-height: 1.6;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Tab bar for sub-navigation */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 20px;
+}
+
+.tab-bar a {
+  padding: 8px 16px;
+  font-size: 13px;
+  text-decoration: none;
+  color: var(--text-secondary);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+
+.tab-bar a:hover {
+  color: var(--text);
+}
+
+.tab-bar a.active {
+  color: var(--primary);
+  border-bottom-color: var(--primary);
+  font-weight: 500;
+}
+
+.hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<!-- Login Page -->
+<div id="login-page" class="login-page">
+  <div class="login-box">
+    <h1>Box0</h1>
+    <p>Enter your API key to access the dashboard.</p>
+    <div id="login-error" class="login-error"></div>
+    <input type="password" id="login-key" placeholder="API key" autocomplete="off">
+    <button class="btn btn-primary" style="width:100%" onclick="App.auth.login()">Sign in</button>
+  </div>
+</div>
+
+<!-- App Layout -->
+<div id="app-layout" class="app-layout hidden">
+  <nav class="sidebar">
+    <div class="sidebar-logo">Box<span>0</span></div>
+    <div class="sidebar-nav">
+      <a href="#/workers" data-page="workers"><span class="nav-icon">W</span> Workers</a>
+      <a href="#/tasks" data-page="tasks"><span class="nav-icon">T</span> Tasks</a>
+      <a href="#/nodes" data-page="nodes"><span class="nav-icon">N</span> Nodes</a>
+      <a href="#/team" data-page="team"><span class="nav-icon">U</span> Team</a>
+    </div>
+    <div class="sidebar-group">
+      <label>Group</label>
+      <select id="group-select" onchange="App.setGroup(this.value)"></select>
+    </div>
+    <div class="sidebar-footer">
+      <div class="user-name" id="user-name"></div>
+      <button onclick="App.auth.logout()">Sign out</button>
+    </div>
+  </nav>
+  <main class="main-content" id="main-content"></main>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+// ============================================================
+// App namespace
+// ============================================================
+var App = {};
+
+// ============================================================
+// App.toast - notifications
+// ============================================================
+App.toast = {
+  show: function(msg, type) {
+    type = type || 'success';
+    var el = document.createElement('div');
+    el.className = 'toast ' + type;
+    el.textContent = msg;
+    document.getElementById('toast-container').appendChild(el);
+    setTimeout(function() { el.remove(); }, 4000);
+  },
+  error: function(msg) { App.toast.show(msg, 'error'); },
+  success: function(msg) { App.toast.show(msg, 'success'); }
+};
+
+// ============================================================
+// App.api - HTTP client
+// ============================================================
+App.api = {
+  key: null,
+
+  headers: function() {
+    var h = { 'Content-Type': 'application/json' };
+    if (App.api.key) h['X-API-Key'] = App.api.key;
+    return h;
+  },
+
+  request: function(method, path, body) {
+    var opts = { method: method, headers: App.api.headers() };
+    if (body) opts.body = JSON.stringify(body);
+    return fetch(path, opts).then(function(res) {
+      if (res.status === 401) {
+        App.auth.logout();
+        throw new Error('Unauthorized');
+      }
+      return res.json().then(function(data) {
+        if (!res.ok) throw new Error(data.error || 'Request failed');
+        return data;
+      });
+    });
+  },
+
+  get: function(path) { return App.api.request('GET', path); },
+  post: function(path, body) { return App.api.request('POST', path, body); },
+  put: function(path, body) { return App.api.request('PUT', path, body); },
+  del: function(path) { return App.api.request('DELETE', path); }
+};
+
+// ============================================================
+// App.auth - authentication
+// ============================================================
+App.auth = {
+  login: function() {
+    var key = document.getElementById('login-key').value.trim();
+    if (!key) return;
+    App.api.key = key;
+    App.api.get('/groups').then(function(data) {
+      localStorage.setItem('b0_api_key', key);
+      App.boot(data);
+    }).catch(function() {
+      document.getElementById('login-error').textContent = 'Invalid API key';
+      document.getElementById('login-error').style.display = 'block';
+      App.api.key = null;
+    });
+  },
+
+  logout: function() {
+    localStorage.removeItem('b0_api_key');
+    localStorage.removeItem('b0_group');
+    App.api.key = null;
+    document.getElementById('login-page').classList.remove('hidden');
+    document.getElementById('app-layout').classList.add('hidden');
+    document.getElementById('login-key').value = '';
+    document.getElementById('login-error').style.display = 'none';
+  },
+
+  tryRestore: function() {
+    var key = localStorage.getItem('b0_api_key');
+    if (!key) return;
+    App.api.key = key;
+    App.api.get('/groups').then(function(data) {
+      App.boot(data);
+    }).catch(function() {
+      localStorage.removeItem('b0_api_key');
+      App.api.key = null;
+    });
+  }
+};
+
+// ============================================================
+// App.boot - initialize after auth
+// ============================================================
+App.groups = [];
+App.currentGroup = null;
+
+App.boot = function(data) {
+  App.groups = data.groups || [];
+  document.getElementById('login-page').classList.add('hidden');
+  document.getElementById('app-layout').classList.remove('hidden');
+
+  // Populate group selector
+  var sel = document.getElementById('group-select');
+  sel.innerHTML = '';
+  App.groups.forEach(function(g) {
+    var opt = document.createElement('option');
+    opt.value = g.name;
+    opt.textContent = g.name;
+    sel.appendChild(opt);
+  });
+
+  // Restore saved group
+  var saved = localStorage.getItem('b0_group');
+  if (saved && App.groups.some(function(g) { return g.name === saved; })) {
+    sel.value = saved;
+    App.currentGroup = saved;
+  } else if (App.groups.length > 0) {
+    App.currentGroup = App.groups[0].name;
+    sel.value = App.currentGroup;
+  }
+
+  // Try to detect user name (best effort)
+  document.getElementById('user-name').textContent = '';
+
+  App.router.start();
+};
+
+App.setGroup = function(name) {
+  App.currentGroup = name;
+  localStorage.setItem('b0_group', name);
+  App.router.navigate(location.hash || '#/workers');
+};
+
+App.groupPath = function(path) {
+  return '/groups/' + encodeURIComponent(App.currentGroup) + path;
+};
+
+// ============================================================
+// App.router - hash-based routing
+// ============================================================
+App.router = {
+  routes: {
+    '/workers': function() { App.workers.render(); },
+    '/tasks': function() { App.tasks.render(); },
+    '/nodes': function() { App.nodes.render(); },
+    '/team': function() { App.team.render(); }
+  },
+
+  start: function() {
+    window.addEventListener('hashchange', App.router.onHashChange);
+    App.router.onHashChange();
+  },
+
+  onHashChange: function() {
+    var hash = location.hash || '#/workers';
+    var path = hash.slice(1); // remove #
+
+    // Update nav highlighting
+    document.querySelectorAll('.sidebar-nav a').forEach(function(a) {
+      a.classList.toggle('active', a.getAttribute('href') === hash);
+    });
+
+    // Check for sub-routes like /workers/detail/name or /tasks/thread/id
+    var parts = path.split('/').filter(Boolean);
+    if (parts[0] === 'workers' && parts[1] === 'detail' && parts[2]) {
+      App.workers.renderDetail(decodeURIComponent(parts[2]));
+      return;
+    }
+    if (parts[0] === 'tasks' && parts[1] === 'thread' && parts[2]) {
+      App.tasks.renderThread(decodeURIComponent(parts[2]));
+      return;
+    }
+
+    var base = '/' + (parts[0] || 'workers');
+    var handler = App.router.routes[base];
+    if (handler) handler();
+    else App.workers.render();
+  },
+
+  navigate: function(hash) {
+    location.hash = hash;
+  }
+};
+
+// ============================================================
+// Helpers
+// ============================================================
+function h(tag, attrs, children) {
+  var parts = ['<' + tag];
+  if (attrs) {
+    Object.keys(attrs).forEach(function(k) {
+      parts.push(' ' + k + '="' + escAttr(attrs[k]) + '"');
+    });
+  }
+  parts.push('>');
+  if (children !== undefined && children !== null) {
+    if (Array.isArray(children)) {
+      parts.push(children.join(''));
+    } else {
+      parts.push(String(children));
+    }
+  }
+  parts.push('</' + tag + '>');
+  return parts.join('');
+}
+
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function escAttr(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function truncate(s, n) {
+  if (!s) return '';
+  n = n || 80;
+  return s.length > n ? s.slice(0, n) + '...' : s;
+}
+
+function statusDot(status) {
+  return '<span class="status-dot ' + esc(status) + '"></span>' + esc(status);
+}
+
+function timeAgo(dateStr) {
+  if (!dateStr) return 'never';
+  var d = new Date(dateStr);
+  var now = new Date();
+  var diff = Math.floor((now - d) / 1000);
+  if (diff < 60) return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
+}
+
+function setContent(html) {
+  document.getElementById('main-content').innerHTML = html;
+}
+
+function showLoading() {
+  setContent('<div class="loading"><span class="spinner"></span></div>');
+}
+
+function contentAsText(content) {
+  if (content === null || content === undefined) return '';
+  if (typeof content === 'string') return content;
+  if (typeof content === 'object') {
+    // Check for common shapes
+    if (content.text) return content.text;
+    if (content.message) return content.message;
+    return JSON.stringify(content, null, 2);
+  }
+  return String(content);
+}
+
+// ============================================================
+// App.workers
+// ============================================================
+App.workers = {
+  render: function() {
+    if (!App.currentGroup) {
+      setContent('<div class="empty-state"><p>No group selected. Create a group in the Team page.</p></div>');
+      return;
+    }
+    showLoading();
+    Promise.all([
+      App.api.get(App.groupPath('/workers')),
+      App.api.get('/nodes')
+    ]).then(function(results) {
+      var workers = results[0].workers || [];
+      var nodes = results[1].nodes || [];
+      App.workers._nodes = nodes;
+
+      var html = '';
+      html += '<div class="page-header">';
+      html += '<h2>Workers</h2>';
+      html += '<button class="btn btn-primary" onclick="App.workers.showAddForm()">+ Add Worker</button>';
+      html += '</div>';
+
+      if (workers.length === 0) {
+        html += '<div class="card"><div class="empty-state"><p>No workers registered in this group.</p></div></div>';
+      } else {
+        html += '<div class="card">';
+        html += '<table>';
+        html += '<thead><tr><th>Name</th><th>Description</th><th>Instructions</th><th>Node</th><th>Runtime</th><th>Status</th><th></th></tr></thead>';
+        html += '<tbody>';
+        workers.forEach(function(w) {
+          html += '<tr class="clickable" onclick="App.router.navigate(\'#/workers/detail/' + encodeURIComponent(w.name) + '\')">';
+          html += '<td><strong>' + esc(w.name) + '</strong></td>';
+          html += '<td>' + esc(truncate(w.description, 40)) + '</td>';
+          html += '<td class="truncated">' + esc(truncate(w.instructions, 60)) + '</td>';
+          html += '<td>' + esc(w.node_id) + '</td>';
+          html += '<td>' + esc(w.runtime) + '</td>';
+          html += '<td>' + statusDot(w.status) + '</td>';
+          html += '<td>';
+          if (w.status === 'active') {
+            html += '<button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); App.workers.stop(\'' + escAttr(w.name) + '\')">Stop</button> ';
+          } else {
+            html += '<button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); App.workers.start(\'' + escAttr(w.name) + '\')">Start</button> ';
+          }
+          html += '<button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); App.workers.remove(\'' + escAttr(w.name) + '\')">Remove</button>';
+          html += '</td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table></div>';
+      }
+
+      setContent(html);
+    }).catch(function(err) {
+      App.toast.error('Failed to load workers: ' + err.message);
+    });
+  },
+
+  renderDetail: function(name) {
+    if (!App.currentGroup) return;
+    showLoading();
+    Promise.all([
+      App.api.get(App.groupPath('/workers/' + encodeURIComponent(name))),
+      App.api.get(App.groupPath('/workers/' + encodeURIComponent(name) + '/logs'))
+    ]).then(function(results) {
+      var w = results[0];
+      var logs = results[1].messages || [];
+
+      var html = '';
+      html += '<div class="page-header">';
+      html += '<h2><a href="#/workers" style="color:var(--text-secondary);text-decoration:none">Workers</a> / ' + esc(w.name) + '</h2>';
+      html += '<div>';
+      if (w.status === 'active') {
+        html += '<button class="btn btn-sm btn-outline" onclick="App.workers.stop(\'' + escAttr(w.name) + '\'); setTimeout(function(){App.workers.renderDetail(\'' + escAttr(w.name) + '\')},500)">Stop</button> ';
+      } else {
+        html += '<button class="btn btn-sm btn-primary" onclick="App.workers.start(\'' + escAttr(w.name) + '\'); setTimeout(function(){App.workers.renderDetail(\'' + escAttr(w.name) + '\')},500)">Start</button> ';
+      }
+      html += '<button class="btn btn-sm btn-danger" onclick="App.workers.remove(\'' + escAttr(w.name) + '\')">Remove</button>';
+      html += '</div></div>';
+
+      html += '<div class="card" style="margin-bottom:20px">';
+      html += '<div class="card-header">Details</div>';
+      html += '<div class="card-body">';
+      html += '<dl class="detail-grid">';
+      html += '<dt>Name</dt><dd>' + esc(w.name) + '</dd>';
+      html += '<dt>Description</dt><dd>' + esc(w.description || '(none)') + '</dd>';
+      html += '<dt>Node</dt><dd>' + esc(w.node_id) + '</dd>';
+      html += '<dt>Runtime</dt><dd>' + esc(w.runtime) + '</dd>';
+      html += '<dt>Status</dt><dd>' + statusDot(w.status) + '</dd>';
+      html += '<dt>Registered by</dt><dd>' + esc(w.registered_by) + '</dd>';
+      html += '<dt>Created</dt><dd>' + esc(w.created_at) + '</dd>';
+      html += '</dl></div></div>';
+
+      html += '<div class="card" style="margin-bottom:20px">';
+      html += '<div class="card-header">Instructions</div>';
+      html += '<div class="card-body">';
+      html += '<div class="instructions-block">' + esc(w.instructions) + '</div>';
+      html += '</div></div>';
+
+      html += '<div class="card">';
+      html += '<div class="card-header">Recent Logs (last 20 messages)</div>';
+      if (logs.length === 0) {
+        html += '<div class="card-body"><p style="color:var(--text-secondary)">No log messages yet.</p></div>';
+      } else {
+        html += '<div class="card-body"><div class="thread-messages">';
+        logs.forEach(function(m) {
+          html += '<div class="thread-msg">';
+          html += '<div class="thread-msg-header">';
+          html += '<strong>' + esc(m.from_agent || m.from) + '</strong>';
+          html += ' &rarr; ' + esc(m.to_agent || m.to);
+          html += ' <span class="thread-msg-type ' + esc(m.msg_type || m.type) + '">' + esc(m.msg_type || m.type) + '</span>';
+          html += ' <span style="margin-left:auto">' + timeAgo(m.created_at) + '</span>';
+          html += '</div>';
+          var text = contentAsText(m.content);
+          if (text) {
+            html += '<div class="thread-msg-content">' + esc(text) + '</div>';
+          }
+          html += '</div>';
+        });
+        html += '</div></div>';
+      }
+      html += '</div>';
+
+      setContent(html);
+
+      // Highlight workers nav link
+      document.querySelectorAll('.sidebar-nav a').forEach(function(a) {
+        a.classList.toggle('active', a.getAttribute('data-page') === 'workers');
+      });
+    }).catch(function(err) {
+      App.toast.error('Failed to load worker: ' + err.message);
+    });
+  },
+
+  showAddForm: function() {
+    var nodes = App.workers._nodes || [];
+    var html = '<div class="modal-overlay" onclick="if(event.target===this)this.remove()">';
+    html += '<div class="modal">';
+    html += '<div class="modal-header">Add Worker<button class="btn-icon" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div>';
+    html += '<div class="modal-body">';
+    html += '<div class="form-group"><label>Name</label><input id="add-w-name" placeholder="e.g. reviewer"></div>';
+    html += '<div class="form-group"><label>Description</label><input id="add-w-desc" placeholder="Optional description"></div>';
+    html += '<div class="form-group"><label>Instructions</label><textarea id="add-w-instructions" placeholder="What should this worker do?"></textarea></div>';
+    html += '<div class="form-row">';
+    html += '<div class="form-group"><label>Node</label><select id="add-w-node">';
+    nodes.forEach(function(n) {
+      html += '<option value="' + escAttr(n.id) + '">' + esc(n.id) + '</option>';
+    });
+    if (nodes.length === 0) {
+      html += '<option value="local">local</option>';
+    }
+    html += '</select></div>';
+    html += '<div class="form-group"><label>Runtime</label><select id="add-w-runtime">';
+    html += '<option value="auto">auto</option>';
+    html += '<option value="claude">claude</option>';
+    html += '<option value="codex">codex</option>';
+    html += '</select></div>';
+    html += '</div>';
+    html += '</div>';
+    html += '<div class="modal-footer">';
+    html += '<button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>';
+    html += '<button class="btn btn-primary" onclick="App.workers.add()">Add Worker</button>';
+    html += '</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+    document.getElementById('add-w-name').focus();
+  },
+
+  add: function() {
+    var name = document.getElementById('add-w-name').value.trim();
+    var desc = document.getElementById('add-w-desc').value.trim();
+    var instructions = document.getElementById('add-w-instructions').value.trim();
+    var node = document.getElementById('add-w-node').value;
+    var runtime = document.getElementById('add-w-runtime').value;
+    if (!name || !instructions) {
+      App.toast.error('Name and instructions are required');
+      return;
+    }
+    App.api.post(App.groupPath('/workers'), {
+      name: name,
+      description: desc,
+      instructions: instructions,
+      node_id: node,
+      runtime: runtime
+    }).then(function() {
+      document.querySelector('.modal-overlay').remove();
+      App.toast.success('Worker "' + name + '" added');
+      App.workers.render();
+    }).catch(function(err) {
+      App.toast.error('Failed: ' + err.message);
+    });
+  },
+
+  remove: function(name) {
+    if (!confirm('Remove worker "' + name + '"?')) return;
+    App.api.del(App.groupPath('/workers/' + encodeURIComponent(name))).then(function() {
+      App.toast.success('Worker removed');
+      App.workers.render();
+    }).catch(function(err) {
+      App.toast.error('Failed: ' + err.message);
+    });
+  },
+
+  stop: function(name) {
+    App.api.post(App.groupPath('/workers/' + encodeURIComponent(name) + '/stop')).then(function() {
+      App.toast.success('Worker stopped');
+      App.workers.render();
+    }).catch(function(err) {
+      App.toast.error('Failed: ' + err.message);
+    });
+  },
+
+  start: function(name) {
+    App.api.post(App.groupPath('/workers/' + encodeURIComponent(name) + '/start')).then(function() {
+      App.toast.success('Worker started');
+      App.workers.render();
+    }).catch(function(err) {
+      App.toast.error('Failed: ' + err.message);
+    });
+  }
+};
+
+// ============================================================
+// App.tasks
+// ============================================================
+App.tasks = {
+  render: function() {
+    if (!App.currentGroup) {
+      setContent('<div class="empty-state"><p>No group selected.</p></div>');
+      return;
+    }
+    showLoading();
+
+    // Get workers to find their active threads
+    App.api.get(App.groupPath('/workers')).then(function(data) {
+      var workers = data.workers || [];
+      // For each worker, get their inbox messages to find active threads
+      var promises = workers.map(function(w) {
+        return App.api.get(App.groupPath('/agents/' + encodeURIComponent(w.name) + '/inbox') + '?status=unread').then(function(res) {
+          return { worker: w.name, messages: res.messages || [] };
+        }).catch(function() {
+          return { worker: w.name, messages: [] };
+        });
+      });
+
+      return Promise.all(promises).then(function(results) {
+        var html = '';
+        html += '<div class="page-header"><h2>Tasks &amp; Threads</h2></div>';
+
+        // Collect all unique threads with pending messages
+        var threads = {};
+        results.forEach(function(r) {
+          r.messages.forEach(function(m) {
+            if (!threads[m.thread_id]) {
+              threads[m.thread_id] = {
+                thread_id: m.thread_id,
+                worker: r.worker,
+                messages: [],
+                latest: m.created_at,
+                latestType: m.msg_type || m.type
+              };
+            }
+            threads[m.thread_id].messages.push(m);
+            if (m.created_at > threads[m.thread_id].latest) {
+              threads[m.thread_id].latest = m.created_at;
+              threads[m.thread_id].latestType = m.msg_type || m.type;
+            }
+          });
+        });
+
+        var threadList = Object.values(threads);
+        threadList.sort(function(a, b) {
+          return a.latest < b.latest ? 1 : -1;
+        });
+
+        if (threadList.length === 0) {
+          html += '<div class="card"><div class="empty-state"><p>No pending tasks. Workers are either idle or have completed all tasks.</p></div></div>';
+        } else {
+          html += '<div class="card">';
+          html += '<table>';
+          html += '<thead><tr><th>Thread</th><th>Worker</th><th>Pending</th><th>Latest Type</th><th>Last Activity</th><th></th></tr></thead>';
+          html += '<tbody>';
+          threadList.forEach(function(t) {
+            html += '<tr class="clickable" onclick="App.router.navigate(\'#/tasks/thread/' + encodeURIComponent(t.thread_id) + '\')">';
+            html += '<td><strong>' + esc(truncate(t.thread_id, 32)) + '</strong></td>';
+            html += '<td>' + esc(t.worker) + '</td>';
+            html += '<td><span class="badge badge-count">' + t.messages.length + '</span></td>';
+            html += '<td><span class="thread-msg-type ' + esc(t.latestType) + '">' + esc(t.latestType) + '</span></td>';
+            html += '<td>' + timeAgo(t.latest) + '</td>';
+            html += '<td><button class="btn btn-sm btn-outline" onclick="event.stopPropagation(); App.router.navigate(\'#/tasks/thread/' + encodeURIComponent(t.thread_id) + '\')">View</button></td>';
+            html += '</tr>';
+          });
+          html += '</tbody></table></div>';
+        }
+
+        setContent(html);
+      });
+    }).catch(function(err) {
+      App.toast.error('Failed to load tasks: ' + err.message);
+    });
+  },
+
+  renderThread: function(threadId) {
+    if (!App.currentGroup) return;
+    showLoading();
+    App.api.get(App.groupPath('/threads/' + encodeURIComponent(threadId))).then(function(data) {
+      var messages = data.messages || [];
+      var html = '';
+      html += '<div class="page-header">';
+      html += '<h2><a href="#/tasks" style="color:var(--text-secondary);text-decoration:none">Tasks</a> / Thread</h2>';
+      html += '</div>';
+
+      html += '<div class="card" style="margin-bottom:20px">';
+      html += '<div class="card-header">Thread: ' + esc(truncate(threadId, 60)) + '</div>';
+      html += '<div class="card-body">';
+      html += '<dl class="detail-grid">';
+      html += '<dt>Thread ID</dt><dd style="font-family:var(--mono);font-size:12px">' + esc(threadId) + '</dd>';
+      html += '<dt>Messages</dt><dd>' + messages.length + '</dd>';
+      if (messages.length > 0) {
+        var last = messages[messages.length - 1];
+        html += '<dt>Status</dt><dd>' + statusDot(last.msg_type || last.type) + '</dd>';
+        var first = new Date(messages[0].created_at);
+        var lastTime = new Date(last.created_at);
+        var elapsed = Math.round((lastTime - first) / 1000);
+        html += '<dt>Elapsed</dt><dd>' + elapsed + 's</dd>';
+      }
+      html += '</dl></div></div>';
+
+      html += '<div class="card">';
+      html += '<div class="card-header">Conversation</div>';
+      html += '<div class="card-body">';
+      if (messages.length === 0) {
+        html += '<p style="color:var(--text-secondary)">No messages in this thread.</p>';
+      } else {
+        html += '<div class="thread-messages">';
+        messages.forEach(function(m) {
+          html += '<div class="thread-msg">';
+          html += '<div class="thread-msg-header">';
+          html += '<strong>' + esc(m.from_agent || m.from) + '</strong>';
+          html += ' &rarr; ' + esc(m.to_agent || m.to);
+          html += ' <span class="thread-msg-type ' + esc(m.msg_type || m.type) + '">' + esc(m.msg_type || m.type) + '</span>';
+          html += ' <span style="margin-left:auto">' + esc(m.created_at) + '</span>';
+          html += '</div>';
+          var text = contentAsText(m.content);
+          if (text) {
+            html += '<div class="thread-msg-content">' + esc(text) + '</div>';
+          }
+          html += '</div>';
+        });
+        html += '</div>';
+      }
+      html += '</div></div>';
+
+      setContent(html);
+
+      // Highlight tasks nav link
+      document.querySelectorAll('.sidebar-nav a').forEach(function(a) {
+        a.classList.toggle('active', a.getAttribute('data-page') === 'tasks');
+      });
+    }).catch(function(err) {
+      App.toast.error('Failed to load thread: ' + err.message);
+    });
+  }
+};
+
+// ============================================================
+// App.nodes
+// ============================================================
+App.nodes = {
+  render: function() {
+    showLoading();
+    App.api.get('/nodes').then(function(data) {
+      var nodes = data.nodes || [];
+
+      // For each node, load its workers
+      var promises = nodes.map(function(n) {
+        return App.api.get('/nodes/' + encodeURIComponent(n.id) + '/workers').then(function(res) {
+          return { node: n, workers: res.workers || [] };
+        }).catch(function() {
+          return { node: n, workers: [] };
+        });
+      });
+
+      return Promise.all(promises).then(function(results) {
+        var html = '';
+        html += '<div class="page-header"><h2>Nodes</h2></div>';
+
+        if (results.length === 0) {
+          html += '<div class="card"><div class="empty-state"><p>No nodes registered.</p></div></div>';
+        } else {
+          results.forEach(function(r) {
+            var n = r.node;
+            html += '<div class="card" style="margin-bottom:16px">';
+            html += '<div class="card-header">';
+            html += statusDot(n.status) + ' <strong>' + esc(n.id) + '</strong>';
+            html += '<span style="font-weight:normal;color:var(--text-secondary);font-size:12px">';
+            html += ' Owner: ' + esc(n.owner);
+            if (n.last_heartbeat) {
+              html += ' &middot; Last heartbeat: ' + timeAgo(n.last_heartbeat);
+            }
+            html += '</span>';
+            html += '</div>';
+
+            if (r.workers.length === 0) {
+              html += '<div class="card-body"><p style="color:var(--text-secondary);font-size:13px">No workers on this node.</p></div>';
+            } else {
+              html += '<table>';
+              html += '<thead><tr><th>Worker</th><th>Group</th><th>Runtime</th><th>Status</th></tr></thead>';
+              html += '<tbody>';
+              r.workers.forEach(function(w) {
+                html += '<tr>';
+                html += '<td>' + esc(w.name) + '</td>';
+                html += '<td>' + esc(w.group || '') + '</td>';
+                html += '<td>' + esc(w.runtime) + '</td>';
+                html += '<td>' + statusDot(w.status) + '</td>';
+                html += '</tr>';
+              });
+              html += '</tbody></table>';
+            }
+            html += '</div>';
+          });
+        }
+
+        setContent(html);
+      });
+    }).catch(function(err) {
+      App.toast.error('Failed to load nodes: ' + err.message);
+    });
+  }
+};
+
+// ============================================================
+// App.team
+// ============================================================
+App.team = {
+  render: function() {
+    showLoading();
+    Promise.all([
+      App.api.get('/users').catch(function() { return { users: null }; }),
+      App.api.get('/groups')
+    ]).then(function(results) {
+      var users = results[0].users;
+      var groups = results[1].groups || [];
+      var isAdmin = users !== null;
+
+      var html = '';
+      html += '<div class="page-header"><h2>Team</h2></div>';
+
+      // Groups section
+      html += '<div class="card" style="margin-bottom:20px">';
+      html += '<div class="card-header">Groups <button class="btn btn-sm btn-primary" onclick="App.team.showCreateGroup()">+ Create Group</button></div>';
+      if (groups.length === 0) {
+        html += '<div class="card-body"><p style="color:var(--text-secondary)">No groups yet.</p></div>';
+      } else {
+        html += '<table>';
+        html += '<thead><tr><th>Name</th><th>Created By</th><th>Created</th><th></th></tr></thead>';
+        html += '<tbody>';
+        groups.forEach(function(g) {
+          html += '<tr>';
+          html += '<td><strong>' + esc(g.name) + '</strong></td>';
+          html += '<td>' + esc(g.created_by) + '</td>';
+          html += '<td>' + timeAgo(g.created_at) + '</td>';
+          html += '<td><button class="btn btn-sm btn-outline" onclick="App.team.showAddMember(\'' + escAttr(g.name) + '\')">Add Member</button></td>';
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+      }
+      html += '</div>';
+
+      // Users section (admin only)
+      if (isAdmin) {
+        html += '<div class="card">';
+        html += '<div class="card-header">Users <button class="btn btn-sm btn-primary" onclick="App.team.showInvite()">+ Invite User</button></div>';
+        if (users.length === 0) {
+          html += '<div class="card-body"><p style="color:var(--text-secondary)">No users.</p></div>';
+        } else {
+          html += '<table>';
+          html += '<thead><tr><th>ID</th><th>Name</th><th>Admin</th><th>Created</th></tr></thead>';
+          html += '<tbody>';
+          users.forEach(function(u) {
+            html += '<tr>';
+            html += '<td style="font-family:var(--mono);font-size:12px">' + esc(truncate(u.id, 16)) + '</td>';
+            html += '<td>' + esc(u.name) + '</td>';
+            html += '<td>' + (u.is_admin ? 'Yes' : 'No') + '</td>';
+            html += '<td>' + timeAgo(u.created_at) + '</td>';
+            html += '</tr>';
+          });
+          html += '</tbody></table>';
+        }
+        html += '</div>';
+      } else {
+        html += '<div class="card">';
+        html += '<div class="card-header">Users</div>';
+        html += '<div class="card-body"><p style="color:var(--text-secondary)">User management is only available to admins.</p></div>';
+        html += '</div>';
+      }
+
+      setContent(html);
+    }).catch(function(err) {
+      App.toast.error('Failed to load team data: ' + err.message);
+    });
+  },
+
+  showCreateGroup: function() {
+    var html = '<div class="modal-overlay" onclick="if(event.target===this)this.remove()">';
+    html += '<div class="modal">';
+    html += '<div class="modal-header">Create Group<button class="btn-icon" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div>';
+    html += '<div class="modal-body">';
+    html += '<div class="form-group"><label>Group Name</label><input id="create-group-name" placeholder="e.g. my-team"></div>';
+    html += '</div>';
+    html += '<div class="modal-footer">';
+    html += '<button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>';
+    html += '<button class="btn btn-primary" onclick="App.team.createGroup()">Create</button>';
+    html += '</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+    document.getElementById('create-group-name').focus();
+  },
+
+  createGroup: function() {
+    var name = document.getElementById('create-group-name').value.trim();
+    if (!name) { App.toast.error('Name is required'); return; }
+    App.api.post('/groups', { name: name }).then(function() {
+      document.querySelector('.modal-overlay').remove();
+      App.toast.success('Group "' + name + '" created');
+      // Refresh groups in selector
+      App.api.get('/groups').then(function(data) {
+        App.groups = data.groups || [];
+        var sel = document.getElementById('group-select');
+        sel.innerHTML = '';
+        App.groups.forEach(function(g) {
+          var opt = document.createElement('option');
+          opt.value = g.name;
+          opt.textContent = g.name;
+          sel.appendChild(opt);
+        });
+        if (!App.currentGroup && App.groups.length > 0) {
+          App.currentGroup = App.groups[0].name;
+          sel.value = App.currentGroup;
+        }
+      });
+      App.team.render();
+    }).catch(function(err) {
+      App.toast.error('Failed: ' + err.message);
+    });
+  },
+
+  showAddMember: function(groupName) {
+    var html = '<div class="modal-overlay" onclick="if(event.target===this)this.remove()">';
+    html += '<div class="modal">';
+    html += '<div class="modal-header">Add Member to ' + esc(groupName) + '<button class="btn-icon" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div>';
+    html += '<div class="modal-body">';
+    html += '<div class="form-group"><label>User ID</label><input id="add-member-id" placeholder="User ID"></div>';
+    html += '</div>';
+    html += '<div class="modal-footer">';
+    html += '<button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>';
+    html += '<button class="btn btn-primary" onclick="App.team.addMember(\'' + escAttr(groupName) + '\')">Add</button>';
+    html += '</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+    document.getElementById('add-member-id').focus();
+  },
+
+  addMember: function(groupName) {
+    var userId = document.getElementById('add-member-id').value.trim();
+    if (!userId) { App.toast.error('User ID is required'); return; }
+    App.api.post('/groups/' + encodeURIComponent(groupName) + '/members/' + encodeURIComponent(userId)).then(function() {
+      document.querySelector('.modal-overlay').remove();
+      App.toast.success('Member added');
+      App.team.render();
+    }).catch(function(err) {
+      App.toast.error('Failed: ' + err.message);
+    });
+  },
+
+  showInvite: function() {
+    var html = '<div class="modal-overlay" onclick="if(event.target===this)this.remove()">';
+    html += '<div class="modal">';
+    html += '<div class="modal-header">Invite User<button class="btn-icon" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div>';
+    html += '<div class="modal-body">';
+    html += '<div class="form-group"><label>Name</label><input id="invite-name" placeholder="e.g. alice"></div>';
+    html += '</div>';
+    html += '<div class="modal-footer">';
+    html += '<button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>';
+    html += '<button class="btn btn-primary" onclick="App.team.invite()">Invite</button>';
+    html += '</div></div></div>';
+    document.body.insertAdjacentHTML('beforeend', html);
+    document.getElementById('invite-name').focus();
+  },
+
+  invite: function() {
+    var name = document.getElementById('invite-name').value.trim();
+    if (!name) { App.toast.error('Name is required'); return; }
+    App.api.post('/users/invite', { name: name }).then(function(data) {
+      document.querySelector('.modal-overlay').remove();
+      // Show the generated key in a new modal
+      var html = '<div class="modal-overlay" onclick="if(event.target===this)this.remove()">';
+      html += '<div class="modal">';
+      html += '<div class="modal-header">User Invited<button class="btn-icon" onclick="this.closest(\'.modal-overlay\').remove()">&times;</button></div>';
+      html += '<div class="modal-body">';
+      html += '<p style="margin-bottom:12px">Share this API key with <strong>' + esc(data.name) + '</strong>. It will not be shown again.</p>';
+      html += '<div class="form-group"><label>API Key</label><input type="text" value="' + escAttr(data.key) + '" readonly onclick="this.select()" style="font-family:var(--mono)"></div>';
+      html += '<div class="form-group"><label>User ID</label><input type="text" value="' + escAttr(data.user_id) + '" readonly onclick="this.select()" style="font-family:var(--mono)"></div>';
+      html += '</div>';
+      html += '<div class="modal-footer">';
+      html += '<button class="btn btn-primary" onclick="this.closest(\'.modal-overlay\').remove()">Done</button>';
+      html += '</div></div></div>';
+      document.body.insertAdjacentHTML('beforeend', html);
+      App.team.render();
+    }).catch(function(err) {
+      App.toast.error('Failed: ' + err.message);
+    });
+  }
+};
+
+// ============================================================
+// Init
+// ============================================================
+document.addEventListener('DOMContentLoaded', function() {
+  // Handle Enter key on login
+  document.getElementById('login-key').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') App.auth.login();
+  });
+
+  App.auth.tryRestore();
+});
+</script>
+</body>
+</html>
