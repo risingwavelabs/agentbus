@@ -743,6 +743,19 @@ fn print_banner(
         lines.push(banner_empty());
     }
 
+    // Get started section (always shown)
+    lines.push(banner_separator());
+    lines.push(banner_empty());
+    lines.push(banner_line("   Get started:"));
+    lines.push(banner_empty());
+    lines.push(banner_line("   1. b0 skill install claude-code"));
+    lines.push(banner_line("      or: b0 skill install codex"));
+    lines.push(banner_empty());
+    lines.push(banner_line("   2. b0 worker add <name> --instructions \"...\""));
+    lines.push(banner_empty());
+    lines.push(banner_line("   3. Open Claude Code and start delegating."));
+    lines.push(banner_empty());
+
     // Info section
     lines.push(banner_separator());
     lines.push(banner_empty());
