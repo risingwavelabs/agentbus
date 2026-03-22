@@ -28,13 +28,15 @@ git clone https://github.com/risingwavelabs/box0.git
 cd box0
 cargo build --release
 export PATH="$PWD/target/release:$PATH"
-
-b0 server
-#   Admin key: b0_abc123...
-#   User: admin (u-xxxx)
-# Server is ready. Admin user auto-created with personal group "admin".
-# On the server machine, you're already logged in.
 ```
+
+Start the server (in a separate terminal):
+
+```bash
+b0 server
+```
+
+On first start, Box0 creates an admin user with a personal group called "admin" and prints the admin key. The CLI is auto-configured on the server machine, no login needed.
 
 ### 2. Create workers
 
