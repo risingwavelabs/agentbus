@@ -1522,7 +1522,24 @@ document.addEventListener('DOMContentLoaded', function() {
   document.getElementById('login-key').addEventListener('keydown', function(e) {
     if (e.key === 'Enter') App.auth.login();
   });
-  App.auth.tryRestore();
+
+  // Auto-login from URL ?key=xxx
+  var params = new URLSearchParams(window.location.search);
+  var urlKey = params.get('key');
+  if (urlKey) {
+    // Clean the URL so the key is not left in the address bar
+    window.history.replaceState({}, '', window.location.pathname);
+    App.api.key = urlKey;
+    App.api.get('/groups').then(function(data) {
+      localStorage.setItem('b0_api_key', urlKey);
+      App.boot(data);
+    }).catch(function() {
+      App.api.key = null;
+      App.auth.tryRestore();
+    });
+  } else {
+    App.auth.tryRestore();
+  }
 });
 </script>
 </body>

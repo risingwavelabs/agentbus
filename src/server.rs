@@ -626,6 +626,7 @@ fn print_banner(
     server_url: &str,
     db_path: &str,
     workers_path: &str,
+    api_key: Option<&str>,
     first_start: Option<(&str, &str, &str)>, // (key, user_name, user_id)
 ) {
     let version = env!("CARGO_PKG_VERSION");
@@ -663,7 +664,6 @@ fn print_banner(
     lines.push(banner_empty());
     lines.push(banner_line(&format!("   Database:   {}", db_path)));
     lines.push(banner_line(&format!("   Workers:    {}", workers_path)));
-    lines.push(banner_line(&format!("   Dashboard:  {}", server_url)));
     lines.push(banner_empty());
     lines.push(banner_line("   Press Ctrl+C to stop."));
     lines.push(banner_empty());
@@ -673,6 +673,13 @@ fn print_banner(
     for line in &lines {
         println!("{}", line);
     }
+
+    // Dashboard link outside the box (can be long with key)
+    let dashboard_url = match api_key {
+        Some(key) => format!("{}?key={}", server_url, key),
+        None => server_url.to_string(),
+    };
+    println!("  Dashboard: {}", dashboard_url);
     println!();
 }
 
@@ -727,11 +734,16 @@ pub async fn run(config: ServerConfig) {
         let _ = db.register_node("local", &admin_id);
     }
 
+    // Resolve API key for dashboard URL: from first start or CLI config
+    let api_key = first_start_info.as_ref().map(|(k, _, _)| k.clone())
+        .or_else(|| crate::config::CliConfig::load().api_key);
+
     // Print banner
     print_banner(
         &server_url,
         &db_display,
         &workers_display,
+        api_key.as_deref(),
         first_start_info.as_ref().map(|(k, n, i)| (k.as_str(), n.as_str(), i.as_str())),
     );
 
