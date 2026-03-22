@@ -2,7 +2,7 @@
 
 ## Project
 
-Box0 is a multi-agent platform for AI agents. Rust codebase, single binary (`b0`).
+Box0 is a multi-agent platform. It lets you run multiple AI agents in parallel across machines. Rust codebase, single binary (`b0`).
 
 ## Conventions
 
