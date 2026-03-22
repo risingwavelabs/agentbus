@@ -381,9 +381,9 @@ pub struct PendingState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingThread {
     pub worker: String,
+    pub group: String,
     pub task: String,
     pub created_at: String,
-    /// If true, the worker is temporary and should be removed when the task completes.
     #[serde(default)]
     pub temp: bool,
 }

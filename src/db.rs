@@ -12,11 +12,23 @@ pub struct Database {
 // --- Models ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct User {
+    pub id: String,
+    pub name: String,
+    pub is_admin: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Group {
+    pub name: String,
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
     pub id: String,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    #[serde(default)]
-    pub aliases: Vec<String>,
     pub created_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_seen: Option<DateTime<Utc>>,
@@ -50,24 +62,9 @@ pub struct Worker {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Node {
     pub id: String,
+    pub owner: String,
     pub status: String,
     pub last_heartbeat: Option<DateTime<Utc>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ApiKey {
-    pub key_prefix: String,
-    pub role: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group_name: Option<String>,
-    pub description: String,
-    pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Group {
-    pub name: String,
-    pub created_at: DateTime<Utc>,
 }
 
 impl Database {
@@ -89,25 +86,39 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch(
             "
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT NOT NULL PRIMARY KEY,
+                name TEXT NOT NULL,
+                key TEXT NOT NULL UNIQUE,
+                is_admin INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS groups (
+                name TEXT NOT NULL PRIMARY KEY,
+                created_by TEXT NOT NULL,
+                created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS group_members (
+                group_name TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                PRIMARY KEY (group_name, user_id),
+                FOREIGN KEY (group_name) REFERENCES groups(name),
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            );
+
             CREATE TABLE IF NOT EXISTS agents (
-                tenant TEXT NOT NULL DEFAULT 'default',
+                group_name TEXT NOT NULL,
                 id TEXT NOT NULL,
                 created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
                 last_seen TEXT,
-                PRIMARY KEY (tenant, id)
-            );
-
-            CREATE TABLE IF NOT EXISTS agent_aliases (
-                tenant TEXT NOT NULL DEFAULT 'default',
-                alias TEXT NOT NULL,
-                agent_id TEXT NOT NULL,
-                PRIMARY KEY (tenant, alias),
-                FOREIGN KEY (tenant, agent_id) REFERENCES agents(tenant, id) ON DELETE CASCADE
+                PRIMARY KEY (group_name, id)
             );
 
             CREATE TABLE IF NOT EXISTS inbox_messages (
                 id TEXT PRIMARY KEY,
-                tenant TEXT NOT NULL DEFAULT 'default',
+                group_name TEXT NOT NULL,
                 thread_id TEXT NOT NULL,
                 from_agent TEXT NOT NULL,
                 to_agent TEXT NOT NULL,
@@ -118,40 +129,26 @@ impl Database {
             );
 
             CREATE TABLE IF NOT EXISTS nodes (
-                tenant TEXT NOT NULL DEFAULT 'default',
-                id TEXT NOT NULL,
+                id TEXT NOT NULL PRIMARY KEY,
+                owner TEXT NOT NULL,
                 status TEXT NOT NULL DEFAULT 'online',
                 last_heartbeat TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
-                PRIMARY KEY (tenant, id)
+                FOREIGN KEY (owner) REFERENCES users(id)
             );
 
             CREATE TABLE IF NOT EXISTS workers (
-                tenant TEXT NOT NULL DEFAULT 'default',
+                group_name TEXT NOT NULL,
                 name TEXT NOT NULL,
                 instructions TEXT NOT NULL,
                 node_id TEXT NOT NULL DEFAULT 'local',
                 status TEXT NOT NULL DEFAULT 'active',
                 registered_by TEXT NOT NULL DEFAULT '',
                 created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
-                PRIMARY KEY (tenant, name)
+                PRIMARY KEY (group_name, name)
             );
 
-            CREATE TABLE IF NOT EXISTS groups (
-                name TEXT NOT NULL PRIMARY KEY,
-                created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
-            );
-
-            CREATE TABLE IF NOT EXISTS api_keys (
-                key TEXT NOT NULL PRIMARY KEY,
-                role TEXT NOT NULL DEFAULT 'member',
-                group_name TEXT,
-                description TEXT NOT NULL DEFAULT '',
-                created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_inbox_tenant_to_status ON inbox_messages(tenant, to_agent, status);
-            CREATE INDEX IF NOT EXISTS idx_inbox_tenant_thread ON inbox_messages(tenant, thread_id);
-            CREATE INDEX IF NOT EXISTS idx_inbox_tenant_to_thread ON inbox_messages(tenant, to_agent, thread_id);
+            CREATE INDEX IF NOT EXISTS idx_inbox_group_to_status ON inbox_messages(group_name, to_agent, status);
+            CREATE INDEX IF NOT EXISTS idx_inbox_group_thread ON inbox_messages(group_name, thread_id);
             ",
         )?;
         Ok(())
@@ -171,129 +168,219 @@ impl Database {
             .unwrap_or_else(|_| Utc::now())
     }
 
-    // --- Agents ---
+    // --- Users ---
 
-    pub fn register_agent(
-        &self,
-        tenant: &str,
-        id: &str,
-        aliases: Option<&[String]>,
-    ) -> Result<Agent> {
+    pub fn create_user(&self, name: &str, is_admin: bool) -> Result<(User, String)> {
         let conn = self.conn.lock().unwrap();
+        let id = format!("u-{}", &Uuid::new_v4().to_string()[..8]);
+        let key = format!("b0_{}", &Uuid::new_v4().to_string().replace('-', ""));
+
         conn.execute(
-            "INSERT OR IGNORE INTO agents (tenant, id) VALUES (?1, ?2)",
-            params![tenant, id],
+            "INSERT INTO users (id, name, key, is_admin) VALUES (?1, ?2, ?3, ?4)",
+            params![id, name, key, is_admin as i32],
         )?;
 
-        if let Some(alias_list) = aliases {
-            conn.execute(
-                "DELETE FROM agent_aliases WHERE tenant = ?1 AND agent_id = ?2",
-                params![tenant, id],
-            )?;
-            for alias in alias_list {
-                conn.execute(
-                    "INSERT OR REPLACE INTO agent_aliases (tenant, alias, agent_id) VALUES (?1, ?2, ?3)",
-                    params![tenant, alias, id],
-                )?;
-            }
-        }
-
-        let (ts, ls): (String, Option<String>) = conn.query_row(
-            "SELECT created_at, last_seen FROM agents WHERE tenant = ?1 AND id = ?2",
-            params![tenant, id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+        // Auto-create personal group
+        conn.execute(
+            "INSERT INTO groups (name, created_by) VALUES (?1, ?2)",
+            params![name, id],
+        )?;
+        conn.execute(
+            "INSERT INTO group_members (group_name, user_id) VALUES (?1, ?2)",
+            params![name, id],
         )?;
 
-        let agent_aliases = self.get_aliases_inner(&conn, tenant, id);
+        let ts: String = conn.query_row(
+            "SELECT created_at FROM users WHERE id = ?1",
+            params![id],
+            |row| row.get(0),
+        )?;
 
-        Ok(Agent {
-            id: id.to_string(),
-            aliases: agent_aliases,
-            created_at: Database::parse_ts(&ts),
-            last_seen: ls.map(|s| Database::parse_ts(&s)),
-        })
+        Ok((
+            User {
+                id,
+                name: name.to_string(),
+                is_admin,
+                created_at: Self::parse_ts(&ts),
+            },
+            key,
+        ))
     }
 
-    pub fn list_agents(&self, tenant: &str) -> Result<Vec<Agent>> {
+    /// Validate a key. Returns the User if valid.
+    pub fn authenticate(&self, key: &str) -> Result<Option<User>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, created_at, last_seen FROM agents WHERE tenant = ?1 ORDER BY created_at ASC",
-        )?;
-        let agents: Vec<Agent> = stmt
-            .query_map(params![tenant], |row| {
-                let ts: String = row.get(1)?;
-                let ls: Option<String> = row.get(2)?;
-                Ok((row.get::<_, String>(0)?, ts, ls))
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?
-            .into_iter()
-            .map(|(id, ts, ls)| {
-                let aliases = self.get_aliases_inner(&conn, tenant, &id);
-                Agent {
-                    id,
-                    aliases,
-                    created_at: Database::parse_ts(&ts),
-                    last_seen: ls.map(|s| Database::parse_ts(&s)),
-                }
-            })
-            .collect();
-        Ok(agents)
-    }
-
-    fn get_aliases_inner(&self, conn: &Connection, tenant: &str, agent_id: &str) -> Vec<String> {
-        let mut stmt = conn
-            .prepare("SELECT alias FROM agent_aliases WHERE tenant = ?1 AND agent_id = ?2")
-            .unwrap();
-        stmt.query_map(params![tenant, agent_id], |row| row.get(0))
-            .unwrap()
-            .filter_map(|r| r.ok())
-            .collect()
-    }
-
-    pub fn resolve_agent(&self, tenant: &str, id_or_alias: &str) -> Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
-        let exists: bool = conn
-            .query_row(
-                "SELECT COUNT(*) FROM agents WHERE tenant = ?1 AND id = ?2",
-                params![tenant, id_or_alias],
-                |row| row.get::<_, i64>(0),
-            )
-            .map(|c| c > 0)?;
-
-        if exists {
-            return Ok(Some(id_or_alias.to_string()));
-        }
-
         conn.query_row(
-            "SELECT agent_id FROM agent_aliases WHERE tenant = ?1 AND alias = ?2",
-            params![tenant, id_or_alias],
+            "SELECT id, name, is_admin, created_at FROM users WHERE key = ?1",
+            params![key],
+            |row| {
+                let ts: String = row.get(3)?;
+                Ok(User {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    is_admin: row.get::<_, i32>(2)? != 0,
+                    created_at: Database::parse_ts(&ts),
+                })
+            },
+        )
+        .optional()
+        .map_err(Into::into)
+    }
+
+    pub fn get_admin_user_id(&self) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id FROM users WHERE is_admin = 1 LIMIT 1",
+            [],
             |row| row.get::<_, String>(0),
         )
         .optional()
         .map_err(Into::into)
     }
 
-    pub fn delete_agent(&self, tenant: &str, id: &str) -> Result<()> {
+    pub fn list_users(&self) -> Result<Vec<User>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, is_admin, created_at FROM users ORDER BY created_at ASC",
+        )?;
+        let users = stmt
+            .query_map([], |row| {
+                let ts: String = row.get(3)?;
+                Ok(User {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    is_admin: row.get::<_, i32>(2)? != 0,
+                    created_at: Database::parse_ts(&ts),
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(users)
+    }
+
+    /// Bootstrap: create admin user if none exists. Returns (user, key) if created.
+    pub fn bootstrap_admin(&self) -> Result<Option<(User, String)>> {
+        let conn = self.conn.lock().unwrap();
+        let has_admin: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM users WHERE is_admin = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|c| c > 0)?;
+
+        if has_admin {
+            return Ok(None);
+        }
+        drop(conn);
+        Ok(Some(self.create_user("admin", true)?))
+    }
+
+    // --- Groups ---
+
+    pub fn create_group(&self, name: &str, created_by: &str) -> Result<Group> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "DELETE FROM agent_aliases WHERE tenant = ?1 AND agent_id = ?2",
-            params![tenant, id],
+            "INSERT INTO groups (name, created_by) VALUES (?1, ?2)",
+            params![name, created_by],
         )?;
-        let deleted = conn.execute(
-            "DELETE FROM agents WHERE tenant = ?1 AND id = ?2",
-            params![tenant, id],
+        // Creator is automatically a member
+        conn.execute(
+            "INSERT INTO group_members (group_name, user_id) VALUES (?1, ?2)",
+            params![name, created_by],
         )?;
-        if deleted == 0 {
-            anyhow::bail!("agent not found");
-        }
+        let ts: String = conn.query_row(
+            "SELECT created_at FROM groups WHERE name = ?1",
+            params![name],
+            |row| row.get(0),
+        )?;
+        Ok(Group {
+            name: name.to_string(),
+            created_by: created_by.to_string(),
+            created_at: Self::parse_ts(&ts),
+        })
+    }
+
+    pub fn add_group_member(&self, group_name: &str, user_id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO group_members (group_name, user_id) VALUES (?1, ?2)",
+            params![group_name, user_id],
+        )?;
         Ok(())
     }
 
-    pub fn update_last_seen(&self, tenant: &str, agent_id: &str) -> Result<()> {
+    pub fn list_groups_for_user(&self, user_id: &str) -> Result<Vec<Group>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT g.name, g.created_by, g.created_at FROM groups g
+             JOIN group_members gm ON g.name = gm.group_name
+             WHERE gm.user_id = ?1 ORDER BY g.name ASC",
+        )?;
+        let groups = stmt
+            .query_map(params![user_id], |row| {
+                let ts: String = row.get(2)?;
+                Ok(Group {
+                    name: row.get(0)?,
+                    created_by: row.get(1)?,
+                    created_at: Database::parse_ts(&ts),
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(groups)
+    }
+
+    pub fn is_group_member(&self, group_name: &str, user_id: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COUNT(*) FROM group_members WHERE group_name = ?1 AND user_id = ?2",
+            params![group_name, user_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|c| c > 0)
+        .map_err(Into::into)
+    }
+
+    // --- Agents (inbox identities) ---
+
+    pub fn register_agent(&self, group_name: &str, id: &str) -> Result<Agent> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE agents SET last_seen = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE tenant = ?1 AND id = ?2",
-            params![tenant, agent_id],
+            "INSERT OR IGNORE INTO agents (group_name, id) VALUES (?1, ?2)",
+            params![group_name, id],
+        )?;
+        let ts: String = conn.query_row(
+            "SELECT created_at FROM agents WHERE group_name = ?1 AND id = ?2",
+            params![group_name, id],
+            |row| row.get(0),
+        )?;
+        Ok(Agent {
+            id: id.to_string(),
+            created_at: Database::parse_ts(&ts),
+            last_seen: None,
+        })
+    }
+
+    pub fn resolve_agent(&self, group_name: &str, id: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM agents WHERE group_name = ?1 AND id = ?2",
+                params![group_name, id],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|c| c > 0)?;
+        if exists {
+            Ok(Some(id.to_string()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn update_last_seen(&self, group_name: &str, agent_id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE agents SET last_seen = strftime('%Y-%m-%dT%H:%M:%SZ', 'now') WHERE group_name = ?1 AND id = ?2",
+            params![group_name, agent_id],
         )?;
         Ok(())
     }
@@ -302,7 +389,7 @@ impl Database {
 
     pub fn send_inbox_message(
         &self,
-        tenant: &str,
+        group_name: &str,
         thread_id: &str,
         from: &str,
         to: &str,
@@ -314,8 +401,8 @@ impl Database {
         let content_str = content.map(|c| serde_json::to_string(c).unwrap_or_default());
 
         conn.execute(
-            "INSERT INTO inbox_messages (id, tenant, thread_id, from_agent, to_agent, type, content) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![msg_id, tenant, thread_id, from, to, msg_type, content_str],
+            "INSERT INTO inbox_messages (id, group_name, thread_id, from_agent, to_agent, type, content) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![msg_id, group_name, thread_id, from, to, msg_type, content_str],
         )?;
 
         let ts: String = conn.query_row(
@@ -338,17 +425,17 @@ impl Database {
 
     pub fn get_inbox_messages(
         &self,
-        tenant: &str,
+        group_name: &str,
         agent_id: &str,
         status: Option<&str>,
         thread_id: Option<&str>,
     ) -> Result<Vec<InboxMessage>> {
         let conn = self.conn.lock().unwrap();
         let mut query =
-            "SELECT id, thread_id, from_agent, to_agent, type, content, status, created_at FROM inbox_messages WHERE tenant = ?1 AND to_agent = ?2"
+            "SELECT id, thread_id, from_agent, to_agent, type, content, status, created_at FROM inbox_messages WHERE group_name = ?1 AND to_agent = ?2"
                 .to_string();
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> =
-            vec![Box::new(tenant.to_string()), Box::new(agent_id.to_string())];
+            vec![Box::new(group_name.to_string()), Box::new(agent_id.to_string())];
         let mut param_idx = 3;
 
         if let Some(s) = status {
@@ -384,11 +471,11 @@ impl Database {
         Ok(messages)
     }
 
-    pub fn ack_inbox_message(&self, tenant: &str, message_id: &str) -> Result<()> {
+    pub fn ack_inbox_message(&self, group_name: &str, message_id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         let updated = conn.execute(
-            "UPDATE inbox_messages SET status = 'acked' WHERE id = ?1 AND tenant = ?2 AND status = 'unread'",
-            params![message_id, tenant],
+            "UPDATE inbox_messages SET status = 'acked' WHERE id = ?1 AND group_name = ?2 AND status = 'unread'",
+            params![message_id, group_name],
         )?;
         if updated == 0 {
             anyhow::bail!("message not found or already acked");
@@ -398,16 +485,16 @@ impl Database {
 
     pub fn get_thread_messages(
         &self,
-        tenant: &str,
+        group_name: &str,
         thread_id: &str,
     ) -> Result<Vec<InboxMessage>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, thread_id, from_agent, to_agent, type, content, status, created_at
-             FROM inbox_messages WHERE tenant = ?1 AND thread_id = ?2 ORDER BY created_at ASC",
+             FROM inbox_messages WHERE group_name = ?1 AND thread_id = ?2 ORDER BY created_at ASC",
         )?;
         let messages = stmt
-            .query_map(params![tenant, thread_id], |row| {
+            .query_map(params![group_name, thread_id], |row| {
                 let content_str: Option<String> = row.get(5)?;
                 let ts: String = row.get(7)?;
                 Ok(InboxMessage {
@@ -427,30 +514,32 @@ impl Database {
 
     // --- Nodes ---
 
-    pub fn register_node(&self, tenant: &str, id: &str) -> Result<Node> {
+    pub fn register_node(&self, id: &str, owner: &str) -> Result<Node> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT OR REPLACE INTO nodes (tenant, id, status, last_heartbeat) VALUES (?1, ?2, 'online', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
-            params![tenant, id],
+            "INSERT OR REPLACE INTO nodes (id, owner, status, last_heartbeat) VALUES (?1, ?2, 'online', strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))",
+            params![id, owner],
         )?;
         Ok(Node {
             id: id.to_string(),
+            owner: owner.to_string(),
             status: "online".to_string(),
             last_heartbeat: Some(Utc::now()),
         })
     }
 
-    pub fn list_nodes(&self, tenant: &str) -> Result<Vec<Node>> {
+    pub fn list_nodes(&self) -> Result<Vec<Node>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, status, last_heartbeat FROM nodes WHERE tenant = ?1 ORDER BY id ASC",
+            "SELECT id, owner, status, last_heartbeat FROM nodes ORDER BY id ASC",
         )?;
         let nodes = stmt
-            .query_map(params![tenant], |row| {
-                let hb: Option<String> = row.get(2)?;
+            .query_map([], |row| {
+                let hb: Option<String> = row.get(3)?;
                 Ok(Node {
                     id: row.get(0)?,
-                    status: row.get(1)?,
+                    owner: row.get(1)?,
+                    status: row.get(2)?,
                     last_heartbeat: hb.map(|s| Database::parse_ts(&s)),
                 })
             })?
@@ -458,36 +547,23 @@ impl Database {
         Ok(nodes)
     }
 
-    pub fn heartbeat_node(&self, tenant: &str, id: &str) -> Result<()> {
+    pub fn get_node_owner(&self, node_id: &str) -> Result<Option<String>> {
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE nodes SET last_heartbeat = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), status = 'online' WHERE tenant = ?1 AND id = ?2",
-            params![tenant, id],
-        )?;
-        Ok(())
+        conn.query_row(
+            "SELECT owner FROM nodes WHERE id = ?1",
+            params![node_id],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(Into::into)
     }
 
-    pub fn remove_node(&self, tenant: &str, id: &str) -> Result<()> {
+    pub fn heartbeat_node(&self, id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
-        // Check no workers assigned
-        let count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM workers WHERE tenant = ?1 AND node_id = ?2",
-            params![tenant, id],
-            |row| row.get(0),
+        conn.execute(
+            "UPDATE nodes SET last_heartbeat = strftime('%Y-%m-%dT%H:%M:%SZ', 'now'), status = 'online' WHERE id = ?1",
+            params![id],
         )?;
-        if count > 0 {
-            anyhow::bail!(
-                "node has {} worker(s) assigned. Remove or reassign them first.",
-                count
-            );
-        }
-        let deleted = conn.execute(
-            "DELETE FROM nodes WHERE tenant = ?1 AND id = ?2",
-            params![tenant, id],
-        )?;
-        if deleted == 0 {
-            anyhow::bail!("node not found");
-        }
         Ok(())
     }
 
@@ -509,7 +585,7 @@ impl Database {
 
     pub fn register_worker(
         &self,
-        tenant: &str,
+        group_name: &str,
         name: &str,
         instructions: &str,
         node_id: &str,
@@ -518,21 +594,22 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let tx = conn.unchecked_transaction()?;
 
+        // Create agent for the worker (so it has an inbox)
         tx.execute(
-            "INSERT OR IGNORE INTO agents (tenant, id) VALUES (?1, ?2)",
-            params![tenant, name],
+            "INSERT OR IGNORE INTO agents (group_name, id) VALUES (?1, ?2)",
+            params![group_name, name],
         )?;
 
         tx.execute(
-            "INSERT INTO workers (tenant, name, instructions, node_id, registered_by) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![tenant, name, instructions, node_id, registered_by],
+            "INSERT INTO workers (group_name, name, instructions, node_id, registered_by) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![group_name, name, instructions, node_id, registered_by],
         )?;
 
         tx.commit()?;
 
         let ts: String = conn.query_row(
-            "SELECT created_at FROM workers WHERE tenant = ?1 AND name = ?2",
-            params![tenant, name],
+            "SELECT created_at FROM workers WHERE group_name = ?1 AND name = ?2",
+            params![group_name, name],
             |row| row.get(0),
         )?;
 
@@ -546,49 +623,47 @@ impl Database {
         })
     }
 
-    pub fn list_workers(&self, tenant: &str) -> Result<Vec<Worker>> {
+    pub fn list_workers(&self, group_name: &str) -> Result<Vec<Worker>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt =
-            conn.prepare(&format!("SELECT {} FROM workers WHERE tenant = ?1 ORDER BY created_at ASC", Self::WORKER_COLS))?;
+        let mut stmt = conn.prepare(
+            &format!("SELECT {} FROM workers WHERE group_name = ?1 ORDER BY created_at ASC", Self::WORKER_COLS),
+        )?;
         let workers = stmt
-            .query_map(params![tenant], Self::parse_worker_row)?
+            .query_map(params![group_name], Self::parse_worker_row)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(workers)
     }
 
-    pub fn get_worker(&self, tenant: &str, name: &str) -> Result<Option<Worker>> {
+    pub fn get_worker(&self, group_name: &str, name: &str) -> Result<Option<Worker>> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            &format!("SELECT {} FROM workers WHERE tenant = ?1 AND name = ?2", Self::WORKER_COLS),
-            params![tenant, name],
+            &format!("SELECT {} FROM workers WHERE group_name = ?1 AND name = ?2", Self::WORKER_COLS),
+            params![group_name, name],
             Self::parse_worker_row,
         )
         .optional()
         .map_err(Into::into)
     }
 
-    /// Remove a worker. Only the creator (registered_by) can remove it.
-    /// Pass empty string for registered_by to skip the check (internal use).
     pub fn remove_worker(
         &self,
-        tenant: &str,
+        group_name: &str,
         name: &str,
-        registered_by: &str,
+        user_id: &str,
     ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
-        // Check ownership
-        if !registered_by.is_empty() {
+        if !user_id.is_empty() {
             let owner: String = conn
                 .query_row(
-                    "SELECT registered_by FROM workers WHERE tenant = ?1 AND name = ?2",
-                    params![tenant, name],
+                    "SELECT registered_by FROM workers WHERE group_name = ?1 AND name = ?2",
+                    params![group_name, name],
                     |row| row.get(0),
                 )
                 .optional()?
                 .ok_or_else(|| anyhow::anyhow!("worker not found"))?;
 
-            if owner != registered_by {
+            if owner != user_id {
                 anyhow::bail!("permission denied: worker was created by someone else");
             }
         }
@@ -596,20 +671,16 @@ impl Database {
         let tx = conn.unchecked_transaction()?;
 
         let deleted = tx.execute(
-            "DELETE FROM workers WHERE tenant = ?1 AND name = ?2",
-            params![tenant, name],
+            "DELETE FROM workers WHERE group_name = ?1 AND name = ?2",
+            params![group_name, name],
         )?;
         if deleted == 0 {
             anyhow::bail!("worker not found");
         }
 
         tx.execute(
-            "DELETE FROM agent_aliases WHERE tenant = ?1 AND agent_id = ?2",
-            params![tenant, name],
-        )?;
-        tx.execute(
-            "DELETE FROM agents WHERE tenant = ?1 AND id = ?2",
-            params![tenant, name],
+            "DELETE FROM agents WHERE group_name = ?1 AND id = ?2",
+            params![group_name, name],
         )?;
 
         tx.commit()?;
@@ -618,31 +689,31 @@ impl Database {
 
     pub fn update_worker_instructions(
         &self,
-        tenant: &str,
+        group_name: &str,
         name: &str,
         instructions: &str,
-        registered_by: &str,
+        user_id: &str,
     ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
-        if !registered_by.is_empty() {
+        if !user_id.is_empty() {
             let owner: String = conn
                 .query_row(
-                    "SELECT registered_by FROM workers WHERE tenant = ?1 AND name = ?2",
-                    params![tenant, name],
+                    "SELECT registered_by FROM workers WHERE group_name = ?1 AND name = ?2",
+                    params![group_name, name],
                     |row| row.get(0),
                 )
                 .optional()?
                 .ok_or_else(|| anyhow::anyhow!("worker not found"))?;
 
-            if owner != registered_by {
+            if owner != user_id {
                 anyhow::bail!("permission denied: worker was created by someone else");
             }
         }
 
         let updated = conn.execute(
-            "UPDATE workers SET instructions = ?3 WHERE tenant = ?1 AND name = ?2",
-            params![tenant, name, instructions],
+            "UPDATE workers SET instructions = ?3 WHERE group_name = ?1 AND name = ?2",
+            params![group_name, name, instructions],
         )?;
         if updated == 0 {
             anyhow::bail!("worker not found");
@@ -652,31 +723,31 @@ impl Database {
 
     pub fn set_worker_status(
         &self,
-        tenant: &str,
+        group_name: &str,
         name: &str,
         status: &str,
-        registered_by: &str,
+        user_id: &str,
     ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
-        if !registered_by.is_empty() {
+        if !user_id.is_empty() {
             let owner: String = conn
                 .query_row(
-                    "SELECT registered_by FROM workers WHERE tenant = ?1 AND name = ?2",
-                    params![tenant, name],
+                    "SELECT registered_by FROM workers WHERE group_name = ?1 AND name = ?2",
+                    params![group_name, name],
                     |row| row.get(0),
                 )
                 .optional()?
                 .ok_or_else(|| anyhow::anyhow!("worker not found"))?;
 
-            if owner != registered_by {
+            if owner != user_id {
                 anyhow::bail!("permission denied: worker was created by someone else");
             }
         }
 
         let updated = conn.execute(
-            "UPDATE workers SET status = ?3 WHERE tenant = ?1 AND name = ?2",
-            params![tenant, name, status],
+            "UPDATE workers SET status = ?3 WHERE group_name = ?1 AND name = ?2",
+            params![group_name, name, status],
         )?;
         if updated == 0 {
             anyhow::bail!("worker not found");
@@ -684,37 +755,22 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_active_workers_for_node(
-        &self,
-        tenant: &str,
-        node_id: &str,
-    ) -> Result<Vec<Worker>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            &format!("SELECT {} FROM workers WHERE tenant = ?1 AND node_id = ?2 AND status = 'active'", Self::WORKER_COLS),
-        )?;
-        let workers = stmt
-            .query_map(params![tenant, node_id], Self::parse_worker_row)?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(workers)
-    }
-
-    /// Get all active workers on a node across ALL tenants.
-    /// Returns (tenant, worker) pairs. Used by the local daemon.
+    /// Get all active workers on a node across ALL groups.
+    /// Used by the daemon.
     pub fn get_all_active_workers_for_node(
         &self,
         node_id: &str,
     ) -> Result<Vec<(String, Worker)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT tenant, name, instructions, node_id, status, registered_by, created_at FROM workers WHERE node_id = ?1 AND status = 'active'",
+            "SELECT group_name, name, instructions, node_id, status, registered_by, created_at FROM workers WHERE node_id = ?1 AND status = 'active'",
         )?;
         let workers = stmt
             .query_map(params![node_id], |row| {
-                let tenant: String = row.get(0)?;
+                let group: String = row.get(0)?;
                 let ts: String = row.get(6)?;
                 Ok((
-                    tenant,
+                    group,
                     Worker {
                         name: row.get(1)?,
                         instructions: row.get(2)?,
@@ -729,10 +785,9 @@ impl Database {
         Ok(workers)
     }
 
-    /// Get recent task threads for a worker (for logs).
     pub fn get_worker_logs(
         &self,
-        tenant: &str,
+        group_name: &str,
         worker_name: &str,
         limit: i64,
     ) -> Result<Vec<InboxMessage>> {
@@ -740,11 +795,11 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT id, thread_id, from_agent, to_agent, type, content, status, created_at
              FROM inbox_messages
-             WHERE tenant = ?1 AND (to_agent = ?2 OR from_agent = ?2)
+             WHERE group_name = ?1 AND (to_agent = ?2 OR from_agent = ?2)
              ORDER BY created_at DESC LIMIT ?3",
         )?;
         let messages = stmt
-            .query_map(params![tenant, worker_name, limit], |row| {
+            .query_map(params![group_name, worker_name, limit], |row| {
                 let content_str: Option<String> = row.get(5)?;
                 let ts: String = row.get(7)?;
                 Ok(InboxMessage {
@@ -761,151 +816,6 @@ impl Database {
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(messages)
     }
-
-    // --- Groups ---
-
-    pub fn create_group(&self, name: &str) -> Result<Group> {
-        let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO groups (name) VALUES (?1)",
-            params![name],
-        )?;
-        let ts: String = conn.query_row(
-            "SELECT created_at FROM groups WHERE name = ?1",
-            params![name],
-            |row| row.get(0),
-        )?;
-        Ok(Group {
-            name: name.to_string(),
-            created_at: Self::parse_ts(&ts),
-        })
-    }
-
-    pub fn list_groups(&self) -> Result<Vec<Group>> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT name, created_at FROM groups ORDER BY name ASC")?;
-        let groups = stmt
-            .query_map([], |row| {
-                let ts: String = row.get(1)?;
-                Ok(Group {
-                    name: row.get(0)?,
-                    created_at: Database::parse_ts(&ts),
-                })
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(groups)
-    }
-
-    // --- API Keys ---
-
-    /// Create an admin key (server-level, no group).
-    pub fn create_admin_key(&self, description: &str) -> Result<String> {
-        let conn = self.conn.lock().unwrap();
-        let key = format!("b0_{}", &Uuid::new_v4().to_string().replace('-', ""));
-        conn.execute(
-            "INSERT INTO api_keys (key, role, group_name, description) VALUES (?1, 'admin', NULL, ?2)",
-            params![key, description],
-        )?;
-        Ok(key)
-    }
-
-    /// Create a group key. Returns the full key.
-    pub fn create_group_key(&self, group_name: &str, description: &str) -> Result<String> {
-        let conn = self.conn.lock().unwrap();
-        // Verify group exists
-        let exists: bool = conn
-            .query_row(
-                "SELECT COUNT(*) FROM groups WHERE name = ?1",
-                params![group_name],
-                |row| row.get::<_, i64>(0),
-            )
-            .map(|c| c > 0)?;
-        if !exists {
-            anyhow::bail!("group '{}' not found", group_name);
-        }
-
-        let key = format!("b0_{}", &Uuid::new_v4().to_string().replace('-', ""));
-        conn.execute(
-            "INSERT INTO api_keys (key, role, group_name, description) VALUES (?1, 'member', ?2, ?3)",
-            params![key, group_name, description],
-        )?;
-        Ok(key)
-    }
-
-    pub fn list_api_keys(&self, group_name: Option<&str>) -> Result<Vec<ApiKey>> {
-        let conn = self.conn.lock().unwrap();
-        let (query, params_vec): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match group_name {
-            Some(g) => (
-                "SELECT key, role, group_name, description, created_at FROM api_keys WHERE group_name = ?1 ORDER BY created_at ASC",
-                vec![Box::new(g.to_string())],
-            ),
-            None => (
-                "SELECT key, role, group_name, description, created_at FROM api_keys ORDER BY created_at ASC",
-                vec![],
-            ),
-        };
-        let mut stmt = conn.prepare(query)?;
-        let params_ref: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
-        let keys = stmt
-            .query_map(params_ref.as_slice(), |row| {
-                let key: String = row.get(0)?;
-                let ts: String = row.get(4)?;
-                Ok(ApiKey {
-                    key_prefix: key[..std::cmp::min(12, key.len())].to_string(),
-                    role: row.get(1)?,
-                    group_name: row.get(2)?,
-                    description: row.get(3)?,
-                    created_at: Database::parse_ts(&ts),
-                })
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-        Ok(keys)
-    }
-
-    pub fn revoke_api_key(&self, key_prefix: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
-        let deleted = conn.execute(
-            "DELETE FROM api_keys WHERE key LIKE ?1 AND role != 'admin'",
-            params![format!("{}%", key_prefix)],
-        )?;
-        if deleted == 0 {
-            anyhow::bail!("key not found (admin keys cannot be revoked this way)");
-        }
-        Ok(())
-    }
-
-    /// Validate an API key. Returns (role, group_name) if valid.
-    pub fn validate_api_key(&self, key: &str) -> Result<Option<(String, Option<String>)>> {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT role, group_name FROM api_keys WHERE key = ?1",
-            params![key],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-        )
-        .optional()
-        .map_err(Into::into)
-    }
-
-    /// Check if any admin keys exist.
-    pub fn has_admin_key(&self) -> bool {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT COUNT(*) FROM api_keys WHERE role = 'admin'",
-            [],
-            |row| row.get::<_, i64>(0),
-        )
-        .map(|c| c > 0)
-        .unwrap_or(false)
-    }
-
-    /// Bootstrap: create admin key if none exists. Returns the key if created.
-    pub fn bootstrap_admin_key(&self) -> Result<Option<String>> {
-        if self.has_admin_key() {
-            return Ok(None);
-        }
-        let key = self.create_admin_key("admin (auto-generated)")?;
-        Ok(Some(key))
-    }
 }
 
 #[cfg(test)]
@@ -917,255 +827,147 @@ mod tests {
     }
 
     #[test]
-    fn test_register_agent() {
+    fn test_bootstrap_admin() {
         let db = test_db();
-        let agent = db.register_agent("default", "test-agent", None).unwrap();
-        assert_eq!(agent.id, "test-agent");
+        let result = db.bootstrap_admin().unwrap();
+        assert!(result.is_some());
+        let (user, key) = result.unwrap();
+        assert!(user.is_admin);
+        assert!(key.starts_with("b0_"));
+
+        // Second call returns None
+        assert!(db.bootstrap_admin().unwrap().is_none());
     }
 
     #[test]
-    fn test_register_agent_idempotent() {
+    fn test_create_user_gets_personal_group() {
         let db = test_db();
-        db.register_agent("default", "test-agent", None).unwrap();
-        let agent = db.register_agent("default", "test-agent", None).unwrap();
-        assert_eq!(agent.id, "test-agent");
+        let (user, _key) = db.create_user("alice", false).unwrap();
+
+        let groups = db.list_groups_for_user(&user.id).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups[0].name, "alice");
+    }
+
+    #[test]
+    fn test_authenticate() {
+        let db = test_db();
+        let (_user, key) = db.create_user("alice", false).unwrap();
+
+        let authed = db.authenticate(&key).unwrap();
+        assert!(authed.is_some());
+        assert_eq!(authed.unwrap().name, "alice");
+
+        let bad = db.authenticate("b0_invalid").unwrap();
+        assert!(bad.is_none());
+    }
+
+    #[test]
+    fn test_group_membership() {
+        let db = test_db();
+        let (alice, _) = db.create_user("alice", false).unwrap();
+        let (bob, _) = db.create_user("bob", false).unwrap();
+
+        // Alice creates shared group
+        db.create_group("frontend", &alice.id).unwrap();
+
+        // Add Bob
+        db.add_group_member("frontend", &bob.id).unwrap();
+
+        // Both are members
+        assert!(db.is_group_member("frontend", &alice.id).unwrap());
+        assert!(db.is_group_member("frontend", &bob.id).unwrap());
+
+        // Alice has personal + frontend
+        let alice_groups = db.list_groups_for_user(&alice.id).unwrap();
+        assert_eq!(alice_groups.len(), 2);
+
+        // Bob has personal + frontend
+        let bob_groups = db.list_groups_for_user(&bob.id).unwrap();
+        assert_eq!(bob_groups.len(), 2);
+    }
+
+    #[test]
+    fn test_worker_in_group() {
+        let db = test_db();
+        let (alice, _) = db.create_user("alice", false).unwrap();
+
+        db.register_worker("alice", "reviewer", "Review code.", "local", &alice.id)
+            .unwrap();
+
+        let workers = db.list_workers("alice").unwrap();
+        assert_eq!(workers.len(), 1);
+        assert_eq!(workers[0].name, "reviewer");
+
+        // Not visible in other groups
+        let (bob, _) = db.create_user("bob", false).unwrap();
+        let workers = db.list_workers("bob").unwrap();
+        assert_eq!(workers.len(), 0);
+
+        // But visible in shared group
+        db.create_group("team", &alice.id).unwrap();
+        db.add_group_member("team", &bob.id).unwrap();
+        db.register_worker("team", "shared-reviewer", "Review.", "local", &alice.id)
+            .unwrap();
+
+        let team_workers = db.list_workers("team").unwrap();
+        assert_eq!(team_workers.len(), 1);
+        assert_eq!(team_workers[0].name, "shared-reviewer");
+    }
+
+    #[test]
+    fn test_node_ownership() {
+        let db = test_db();
+        let (alice, _) = db.create_user("alice", false).unwrap();
+        let (bob, _) = db.create_user("bob", false).unwrap();
+
+        db.register_node("alice-gpu", &alice.id).unwrap();
+
+        let owner = db.get_node_owner("alice-gpu").unwrap();
+        assert_eq!(owner, Some(alice.id.clone()));
+
+        // Bob is not the owner
+        let owner = db.get_node_owner("alice-gpu").unwrap();
+        assert_ne!(owner, Some(bob.id));
+    }
+
+    #[test]
+    fn test_worker_ownership_permission() {
+        let db = test_db();
+        let (alice, _) = db.create_user("alice", false).unwrap();
+        let (bob, _) = db.create_user("bob", false).unwrap();
+
+        db.create_group("team", &alice.id).unwrap();
+        db.add_group_member("team", &bob.id).unwrap();
+
+        db.register_worker("team", "reviewer", "Review.", "local", &alice.id)
+            .unwrap();
+
+        // Bob cannot remove Alice's worker
+        let result = db.remove_worker("team", "reviewer", &bob.id);
+        assert!(result.is_err());
+
+        // Alice can
+        db.remove_worker("team", "reviewer", &alice.id).unwrap();
     }
 
     #[test]
     fn test_inbox_roundtrip() {
         let db = test_db();
-        db.register_agent("default", "sender", None).unwrap();
-        db.register_agent("default", "receiver", None).unwrap();
+        let (alice, _) = db.create_user("alice", false).unwrap();
+        db.register_agent("alice", "sender").unwrap();
+        db.register_agent("alice", "receiver").unwrap();
 
         let msg = db
-            .send_inbox_message(
-                "default",
-                "thread-1",
-                "sender",
-                "receiver",
-                "request",
-                Some(&serde_json::json!("hello")),
-            )
+            .send_inbox_message("alice", "t1", "sender", "receiver", "request", Some(&serde_json::json!("hello")))
             .unwrap();
         assert_eq!(msg.msg_type, "request");
 
-        let messages = db
-            .get_inbox_messages("default", "receiver", Some("unread"), None)
-            .unwrap();
+        let messages = db.get_inbox_messages("alice", "receiver", Some("unread"), None).unwrap();
         assert_eq!(messages.len(), 1);
 
-        db.ack_inbox_message("default", &msg.id).unwrap();
-
-        let messages = db
-            .get_inbox_messages("default", "receiver", Some("unread"), None)
-            .unwrap();
+        db.ack_inbox_message("alice", &msg.id).unwrap();
+        let messages = db.get_inbox_messages("alice", "receiver", Some("unread"), None).unwrap();
         assert_eq!(messages.len(), 0);
-    }
-
-    #[test]
-    fn test_thread_messages() {
-        let db = test_db();
-        db.register_agent("default", "a", None).unwrap();
-        db.register_agent("default", "b", None).unwrap();
-
-        db.send_inbox_message("default", "t1", "a", "b", "request", None)
-            .unwrap();
-        db.send_inbox_message("default", "t1", "b", "a", "done", None)
-            .unwrap();
-
-        let msgs = db.get_thread_messages("default", "t1").unwrap();
-        assert_eq!(msgs.len(), 2);
-        assert_eq!(msgs[0].msg_type, "request");
-        assert_eq!(msgs[1].msg_type, "done");
-    }
-
-    #[test]
-    fn test_register_worker() {
-        let db = test_db();
-        let worker = db
-            .register_worker("default", "reviewer", "Review code.", "local", "key1")
-            .unwrap();
-        assert_eq!(worker.name, "reviewer");
-        assert_eq!(worker.node_id, "local");
-
-        let agent = db.resolve_agent("default", "reviewer").unwrap();
-        assert_eq!(agent, Some("reviewer".to_string()));
-    }
-
-    #[test]
-    fn test_list_workers() {
-        let db = test_db();
-        db.register_worker("default", "reviewer", "Review code.", "local", "key1")
-            .unwrap();
-        db.register_worker("default", "tester", "Run tests.", "local", "key1")
-            .unwrap();
-
-        let workers = db.list_workers("default").unwrap();
-        assert_eq!(workers.len(), 2);
-    }
-
-    #[test]
-    fn test_remove_worker() {
-        let db = test_db();
-        db.register_worker("default", "reviewer", "Review code.", "local", "key1")
-            .unwrap();
-        db.remove_worker("default", "reviewer", "key1").unwrap();
-
-        let workers = db.list_workers("default").unwrap();
-        assert_eq!(workers.len(), 0);
-
-        let agent = db.resolve_agent("default", "reviewer").unwrap();
-        assert_eq!(agent, None);
-    }
-
-    #[test]
-    fn test_remove_worker_not_found() {
-        let db = test_db();
-        let result = db.remove_worker("default", "nonexistent", "");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_worker_ownership() {
-        let db = test_db();
-        db.register_worker("default", "reviewer", "Review.", "local", "alice")
-            .unwrap();
-
-        // Alice can remove her own worker
-        // Bob cannot
-        let result = db.remove_worker("default", "reviewer", "bob");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("permission denied"));
-
-        // Alice can
-        db.remove_worker("default", "reviewer", "alice").unwrap();
-    }
-
-    #[test]
-    fn test_worker_stop_start() {
-        let db = test_db();
-        db.register_worker("default", "w", "x", "local", "k").unwrap();
-
-        db.set_worker_status("default", "w", "stopped", "k").unwrap();
-        let w = db.get_worker("default", "w").unwrap().unwrap();
-        assert_eq!(w.status, "stopped");
-
-        db.set_worker_status("default", "w", "active", "k").unwrap();
-        let w = db.get_worker("default", "w").unwrap().unwrap();
-        assert_eq!(w.status, "active");
-    }
-
-    #[test]
-    fn test_worker_update_instructions() {
-        let db = test_db();
-        db.register_worker("default", "w", "old", "local", "k").unwrap();
-
-        db.update_worker_instructions("default", "w", "new instructions", "k").unwrap();
-        let w = db.get_worker("default", "w").unwrap().unwrap();
-        assert_eq!(w.instructions, "new instructions");
-    }
-
-    #[test]
-    fn test_nodes() {
-        let db = test_db();
-        db.register_node("default", "gpu-box").unwrap();
-        db.register_node("default", "cpu-1").unwrap();
-
-        let nodes = db.list_nodes("default").unwrap();
-        assert_eq!(nodes.len(), 2);
-
-        db.heartbeat_node("default", "gpu-box").unwrap();
-
-        db.remove_node("default", "cpu-1").unwrap();
-        let nodes = db.list_nodes("default").unwrap();
-        assert_eq!(nodes.len(), 1);
-    }
-
-    #[test]
-    fn test_node_with_workers_cannot_remove() {
-        let db = test_db();
-        db.register_node("default", "gpu-box").unwrap();
-        db.register_worker("default", "ml", "ML agent.", "gpu-box", "key1")
-            .unwrap();
-
-        let result = db.remove_node("default", "gpu-box");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_workers_for_node() {
-        let db = test_db();
-        db.register_node("default", "local").unwrap();
-        db.register_node("default", "gpu-box").unwrap();
-
-        db.register_worker("default", "reviewer", "Review.", "local", "key1")
-            .unwrap();
-        db.register_worker("default", "ml", "ML.", "gpu-box", "key1")
-            .unwrap();
-
-        let local = db.get_active_workers_for_node("default", "local").unwrap();
-        assert_eq!(local.len(), 1);
-        assert_eq!(local[0].name, "reviewer");
-
-        let gpu = db
-            .get_active_workers_for_node("default", "gpu-box")
-            .unwrap();
-        assert_eq!(gpu.len(), 1);
-        assert_eq!(gpu[0].name, "ml");
-    }
-
-    #[test]
-    fn test_bootstrap_admin_key() {
-        let db = test_db();
-
-        // First call creates admin key
-        let key = db.bootstrap_admin_key().unwrap();
-        assert!(key.is_some());
-        let admin_key = key.unwrap();
-        assert!(admin_key.starts_with("b0_"));
-
-        // Second call returns None (already exists)
-        let key2 = db.bootstrap_admin_key().unwrap();
-        assert!(key2.is_none());
-
-        // Validate returns admin role
-        let result = db.validate_api_key(&admin_key).unwrap();
-        assert_eq!(result, Some(("admin".to_string(), None)));
-    }
-
-    #[test]
-    fn test_groups_and_keys() {
-        let db = test_db();
-
-        // Create group
-        db.create_group("frontend").unwrap();
-        let groups = db.list_groups().unwrap();
-        assert_eq!(groups.len(), 1);
-        assert_eq!(groups[0].name, "frontend");
-
-        // Create group key
-        let key = db.create_group_key("frontend", "alice").unwrap();
-        assert!(key.starts_with("b0_"));
-
-        // Validate returns member role + group
-        let result = db.validate_api_key(&key).unwrap();
-        assert_eq!(
-            result,
-            Some(("member".to_string(), Some("frontend".to_string())))
-        );
-
-        // Can't create key for nonexistent group
-        let bad = db.create_group_key("nonexistent", "x");
-        assert!(bad.is_err());
-
-        // Revoke
-        let prefix = &key[..12];
-        db.revoke_api_key(prefix).unwrap();
-        let keys = db.list_api_keys(Some("frontend")).unwrap();
-        assert_eq!(keys.len(), 0);
-
-        // Invalid key
-        let invalid = db.validate_api_key("b0_invalid").unwrap();
-        assert_eq!(invalid, None);
     }
 }

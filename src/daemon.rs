@@ -169,20 +169,13 @@ pub async fn run_remote(server_url: &str, node_id: &str, api_key: Option<&str>) 
             last_heartbeat = std::time::Instant::now();
         }
 
-        // Get workers assigned to this node
-        let workers = match client.list_workers_for_node(node_id).await {
-            Ok(w) => w,
-            Err(e) => {
-                tracing::error!("Failed to get workers: {}", e);
-                tokio::time::sleep(poll_interval).await;
-                continue;
-            }
-        };
+        // TODO: Remote daemon needs a cross-group worker listing endpoint.
+        // For now, remote daemon is limited. Use local daemon on the server machine.
+        let workers: Vec<(String, crate::db::Worker)> = vec![];
 
-        for worker in &workers {
-            // Poll worker's inbox
+        for (group, worker) in &workers {
             let messages = match client
-                .get_inbox(&worker.name, Some("unread"), Some(0.0))
+                .get_inbox(group, &worker.name, Some("unread"), Some(0.0))
                 .await
             {
                 Ok(m) => m,
@@ -191,11 +184,11 @@ pub async fn run_remote(server_url: &str, node_id: &str, api_key: Option<&str>) 
 
             for msg in messages {
                 if msg.msg_type != "request" && msg.msg_type != "answer" {
-                    let _ = client.ack_message(&msg.id).await;
+                    let _ = client.ack_message(group, &msg.id).await;
                     continue;
                 }
 
-                let _ = client.ack_message(&msg.id).await;
+                let _ = client.ack_message(group, &msg.id).await;
 
                 let permit = match semaphore.clone().try_acquire_owned() {
                     Ok(p) => p,
@@ -203,6 +196,7 @@ pub async fn run_remote(server_url: &str, node_id: &str, api_key: Option<&str>) 
                 };
 
                 let client = client.clone();
+                let group = group.clone();
                 let instructions = worker.instructions.clone();
                 let sessions = sessions.clone();
                 let msg = msg.clone();
@@ -244,6 +238,7 @@ pub async fn run_remote(server_url: &str, node_id: &str, api_key: Option<&str>) 
 
                             let _ = client
                                 .send_message(
+                                    &group,
                                     &msg.from_agent,
                                     &msg.thread_id,
                                     &msg.to_agent,
@@ -255,6 +250,7 @@ pub async fn run_remote(server_url: &str, node_id: &str, api_key: Option<&str>) 
                         Err(e) => {
                             let _ = client
                                 .send_message(
+                                    &group,
                                     &msg.from_agent,
                                     &msg.thread_id,
                                     &msg.to_agent,
