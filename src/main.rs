@@ -1,5 +1,6 @@
 use box0::{client, config, daemon, server};
 use clap::{Parser, Subcommand};
+use std::io::IsTerminal;
 
 #[derive(Parser)]
 #[command(name = "b0", about = "Box0 agent platform", version)]
@@ -224,6 +225,56 @@ fn make_client(cfg: &config::CliConfig) -> client::BhClient {
     }
 }
 
+/// Expand @/path/to/file references in a task string.
+/// Replaces each @<path> with the file contents appended at the end.
+fn expand_file_refs(task: &str) -> String {
+    let re = regex::Regex::new(r"@(/[^\s]+)").unwrap();
+    let mut files: Vec<(String, String)> = Vec::new();
+    let cleaned = re.replace_all(task, |caps: &regex::Captures| {
+        let path = &caps[1];
+        let p = std::path::Path::new(path);
+        if p.is_file() {
+            match std::fs::read_to_string(p) {
+                Ok(content) => {
+                    files.push((path.to_string(), content));
+                    path.to_string()
+                }
+                Err(e) => {
+                    eprintln!("Warning: could not read {}: {}", path, e);
+                    format!("@{}", path)
+                }
+            }
+        } else if p.is_dir() {
+            // List directory contents
+            let mut listing = Vec::new();
+            if let Ok(entries) = std::fs::read_dir(p) {
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let kind = if entry.path().is_dir() { "dir" } else { "file" };
+                    listing.push(format!("  {} ({})", name, kind));
+                }
+            }
+            if !listing.is_empty() {
+                files.push((path.to_string(), listing.join("\n")));
+            }
+            path.to_string()
+        } else {
+            // Not a valid path, leave as-is
+            format!("@{}", path)
+        }
+    });
+
+    if files.is_empty() {
+        return cleaned.to_string();
+    }
+
+    let mut result = cleaned.to_string();
+    for (path, content) in &files {
+        result.push_str(&format!("\n\n--- {} ---\n{}", path, content));
+    }
+    result
+}
+
 /// Resolve the group: use explicit --group, or fall back to default_group in config.
 fn resolve_group(explicit: Option<String>) -> String {
     if let Some(g) = explicit {
@@ -357,7 +408,20 @@ async fn main() {
                 }
             }
             WorkerCommand::Temp { group, task, instructions } => { let group = resolve_group(group);
-                cmd_worker_temp(&group, &task, &instructions).await;
+                let task_content = if !std::io::stdin().is_terminal() {
+                    use std::io::Read;
+                    let mut buf = String::new();
+                    std::io::stdin().read_to_string(&mut buf).expect("failed to read stdin");
+                    if !buf.trim().is_empty() {
+                        format!("{}\n\n{}", task, buf)
+                    } else {
+                        task
+                    }
+                } else {
+                    task
+                };
+                let task_content = expand_file_refs(&task_content);
+                cmd_worker_temp(&group, &task_content, &instructions).await;
             }
         },
 
@@ -504,14 +568,33 @@ async fn main() {
 
         Command::Delegate { group, thread, worker, task } => { let group = resolve_group(group);
             let task_content = match task {
-                Some(t) => t,
+                Some(t) => {
+                    if !std::io::stdin().is_terminal() {
+                        use std::io::Read;
+                        let mut buf = String::new();
+                        std::io::stdin().read_to_string(&mut buf).expect("failed to read stdin");
+                        if !buf.trim().is_empty() {
+                            format!("{}\n\n{}", t, buf)
+                        } else {
+                            t
+                        }
+                    } else {
+                        t
+                    }
+                }
                 None => {
-                    use std::io::Read;
-                    let mut buf = String::new();
-                    std::io::stdin().read_to_string(&mut buf).expect("failed to read stdin");
-                    buf
+                    if !std::io::stdin().is_terminal() {
+                        use std::io::Read;
+                        let mut buf = String::new();
+                        std::io::stdin().read_to_string(&mut buf).expect("failed to read stdin");
+                        buf
+                    } else {
+                        eprintln!("Error: no task provided. Pass a task argument or pipe content via stdin.");
+                        std::process::exit(1);
+                    }
                 }
             };
+            let task_content = expand_file_refs(&task_content);
             cmd_delegate(&group, &worker, &task_content, thread.as_deref()).await;
         }
 
