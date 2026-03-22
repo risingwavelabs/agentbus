@@ -64,6 +64,7 @@ pub async fn run_local(state: SharedState, workspace_root: std::path::PathBuf) {
                 let tenant = tenant.clone();
                 let instructions = worker.instructions.clone();
                 let worker_name = worker.name.clone();
+                let worker_runtime = worker.runtime.clone();
                 let workspace_root = workspace_root.clone();
                 let sessions = sessions.clone();
                 let msg = msg.clone();
@@ -91,16 +92,18 @@ pub async fn run_local(state: SharedState, workspace_root: std::path::PathBuf) {
                         None
                     };
 
+                    let resolved_rt = resolve_runtime(&worker_runtime);
                     tracing::info!(
                         worker = msg.to_agent,
                         thread = msg.thread_id,
+                        runtime = resolved_rt,
                         dir = %worker_dir.display(),
                         resume = resume_session.is_some(),
                         "Processing task"
                     );
 
                     let result =
-                        invoke_claude_cli(&instructions, &task_content, resume_session.as_deref(), Some(&worker_dir))
+                        invoke_runtime(&worker_runtime, &instructions, &task_content, resume_session.as_deref(), Some(&worker_dir))
                             .await;
 
                     match result {
@@ -209,6 +212,7 @@ pub async fn run_remote(server_url: &str, node_id: &str, api_key: Option<&str>) 
                 let client = client.clone();
                 let group = group.clone();
                 let instructions = worker.instructions.clone();
+                let worker_runtime = worker.runtime.clone();
                 let sessions = sessions.clone();
                 let msg = msg.clone();
 
@@ -228,14 +232,16 @@ pub async fn run_remote(server_url: &str, node_id: &str, api_key: Option<&str>) 
                         None
                     };
 
+                    let resolved_rt = resolve_runtime(&worker_runtime);
                     tracing::info!(
                         worker = msg.to_agent,
                         thread = msg.thread_id,
+                        runtime = resolved_rt,
                         "Processing task"
                     );
 
                     let result =
-                        invoke_claude_cli(&instructions, &task_content, resume_session.as_deref(), None)
+                        invoke_runtime(&worker_runtime, &instructions, &task_content, resume_session.as_deref(), None)
                             .await;
 
                     match result {
@@ -279,19 +285,60 @@ pub async fn run_remote(server_url: &str, node_id: &str, api_key: Option<&str>) 
     }
 }
 
-// --- Claude CLI invocation ---
+// --- Runtime abstraction ---
 
-struct ClaudeOutput {
+struct RuntimeOutput {
     text: String,
     session_id: Option<String>,
 }
+
+/// Resolve which runtime to use. "auto" detects what's installed (claude preferred).
+fn resolve_runtime(configured: &str) -> &str {
+    if configured != "auto" {
+        return configured;
+    }
+    // Auto-detect: prefer claude, fall back to codex
+    if which("claude") {
+        "claude"
+    } else if which("codex") {
+        "codex"
+    } else {
+        "claude" // will fail with a clear error at invocation time
+    }
+}
+
+fn which(cmd: &str) -> bool {
+    std::process::Command::new("which")
+        .arg(cmd)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+async fn invoke_runtime(
+    runtime: &str,
+    instructions: &str,
+    task: &str,
+    resume_session: Option<&str>,
+    working_dir: Option<&std::path::Path>,
+) -> anyhow::Result<RuntimeOutput> {
+    let resolved = resolve_runtime(runtime);
+    match resolved {
+        "codex" => invoke_codex_cli(instructions, task, working_dir).await,
+        _ => invoke_claude_cli(instructions, task, resume_session, working_dir).await,
+    }
+}
+
+// --- Claude CLI ---
 
 async fn invoke_claude_cli(
     instructions: &str,
     task: &str,
     resume_session: Option<&str>,
     working_dir: Option<&std::path::Path>,
-) -> anyhow::Result<ClaudeOutput> {
+) -> anyhow::Result<RuntimeOutput> {
     let mut cmd = tokio::process::Command::new("claude");
     cmd.args(["--print", "--output-format", "json"]);
 
@@ -311,7 +358,7 @@ async fn invoke_claude_cli(
 
     let mut child = cmd.spawn().map_err(|e| {
         if e.kind() == std::io::ErrorKind::NotFound {
-            anyhow::anyhow!("claude CLI not found")
+            anyhow::anyhow!("claude CLI not found. Install it or use --runtime codex")
         } else {
             anyhow::anyhow!("failed to spawn claude CLI: {}", e)
         }
@@ -348,7 +395,7 @@ async fn invoke_claude_cli(
     }
 }
 
-fn parse_claude_json(stdout: &str) -> anyhow::Result<ClaudeOutput> {
+fn parse_claude_json(stdout: &str) -> anyhow::Result<RuntimeOutput> {
     match serde_json::from_str::<serde_json::Value>(stdout) {
         Ok(json) => {
             let text = json["result"]
@@ -356,11 +403,92 @@ fn parse_claude_json(stdout: &str) -> anyhow::Result<ClaudeOutput> {
                 .unwrap_or("(no result)")
                 .to_string();
             let session_id = json["session_id"].as_str().map(|s| s.to_string());
-            Ok(ClaudeOutput { text, session_id })
+            Ok(RuntimeOutput { text, session_id })
         }
-        Err(_) => Ok(ClaudeOutput {
+        Err(_) => Ok(RuntimeOutput {
             text: stdout.to_string(),
             session_id: None,
         }),
     }
+}
+
+// --- Codex CLI ---
+
+async fn invoke_codex_cli(
+    instructions: &str,
+    task: &str,
+    working_dir: Option<&std::path::Path>,
+) -> anyhow::Result<RuntimeOutput> {
+    let prompt = format!("{}\n\n{}", instructions, task);
+
+    let mut cmd = tokio::process::Command::new("codex");
+    cmd.args(["exec", "--json", "--full-auto"]);
+
+    if let Some(dir) = working_dir {
+        cmd.args(["-C", &dir.to_string_lossy()]);
+    }
+
+    cmd.arg(&prompt);
+    cmd.stdin(std::process::Stdio::null());
+    cmd.stdout(std::process::Stdio::piped());
+    cmd.stderr(std::process::Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            anyhow::anyhow!("codex CLI not found. Install it or use --runtime claude")
+        } else {
+            anyhow::anyhow!("failed to spawn codex CLI: {}", e)
+        }
+    })?;
+
+    let result =
+        tokio::time::timeout(Duration::from_secs(TASK_TIMEOUT_SECS), child.wait_with_output())
+            .await;
+
+    match result {
+        Ok(Ok(output)) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            parse_codex_jsonl(&stdout)
+        }
+        Ok(Ok(output)) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if let Ok(parsed) = parse_codex_jsonl(&stdout) {
+                return Ok(parsed);
+            }
+            Err(anyhow::anyhow!("codex CLI failed: {}", stderr))
+        }
+        Ok(Err(e)) => Err(anyhow::anyhow!("codex CLI error: {}", e)),
+        Err(_) => Err(anyhow::anyhow!(
+            "task timed out after {}s",
+            TASK_TIMEOUT_SECS
+        )),
+    }
+}
+
+fn parse_codex_jsonl(stdout: &str) -> anyhow::Result<RuntimeOutput> {
+    // Codex --json outputs JSONL. Extract the last message content.
+    let mut last_text = String::new();
+    for line in stdout.lines() {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+            // Look for message events with assistant content
+            if json["type"].as_str() == Some("message") {
+                if let Some(content) = json["content"].as_str() {
+                    last_text = content.to_string();
+                }
+            }
+            // Also check for output_text in response events
+            if let Some(text) = json["output_text"].as_str() {
+                last_text = text.to_string();
+            }
+        }
+    }
+    if last_text.is_empty() {
+        // Fallback: return raw stdout
+        last_text = stdout.to_string();
+    }
+    Ok(RuntimeOutput {
+        text: last_text,
+        session_id: None, // Codex doesn't support session resume in the same way
+    })
 }

@@ -55,6 +55,7 @@ pub struct Worker {
     pub description: String,
     pub instructions: String,
     pub node_id: String,
+    pub runtime: String,
     pub status: String,
     pub registered_by: String,
     pub created_at: DateTime<Utc>,
@@ -143,6 +144,7 @@ impl Database {
                 description TEXT NOT NULL DEFAULT '',
                 instructions TEXT NOT NULL,
                 node_id TEXT NOT NULL DEFAULT 'local',
+                runtime TEXT NOT NULL DEFAULT 'auto',
                 status TEXT NOT NULL DEFAULT 'active',
                 registered_by TEXT NOT NULL DEFAULT '',
                 created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
@@ -572,19 +574,20 @@ impl Database {
     // --- Workers ---
 
     fn parse_worker_row(row: &rusqlite::Row) -> rusqlite::Result<Worker> {
-        let ts: String = row.get(6)?;
+        let ts: String = row.get(7)?;
         Ok(Worker {
             name: row.get(0)?,
             description: row.get(1)?,
             instructions: row.get(2)?,
             node_id: row.get(3)?,
-            status: row.get(4)?,
-            registered_by: row.get(5)?,
+            runtime: row.get(4)?,
+            status: row.get(5)?,
+            registered_by: row.get(6)?,
             created_at: Database::parse_ts(&ts),
         })
     }
 
-    const WORKER_COLS: &str = "name, description, instructions, node_id, status, registered_by, created_at";
+    const WORKER_COLS: &str = "name, description, instructions, node_id, runtime, status, registered_by, created_at";
 
     pub fn register_worker(
         &self,
@@ -593,6 +596,7 @@ impl Database {
         description: &str,
         instructions: &str,
         node_id: &str,
+        runtime: &str,
         registered_by: &str,
     ) -> Result<Worker> {
         let conn = self.conn.lock().unwrap();
@@ -604,8 +608,8 @@ impl Database {
         )?;
 
         tx.execute(
-            "INSERT INTO workers (group_name, name, description, instructions, node_id, registered_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![group_name, name, description, instructions, node_id, registered_by],
+            "INSERT INTO workers (group_name, name, description, instructions, node_id, runtime, registered_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![group_name, name, description, instructions, node_id, runtime, registered_by],
         )?;
 
         tx.commit()?;
@@ -621,6 +625,7 @@ impl Database {
             description: description.to_string(),
             instructions: instructions.to_string(),
             node_id: node_id.to_string(),
+            runtime: runtime.to_string(),
             status: "active".to_string(),
             registered_by: registered_by.to_string(),
             created_at: Self::parse_ts(&ts),
@@ -767,12 +772,12 @@ impl Database {
     ) -> Result<Vec<(String, Worker)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT group_name, name, description, instructions, node_id, status, registered_by, created_at FROM workers WHERE node_id = ?1 AND status = 'active'",
+            "SELECT group_name, name, description, instructions, node_id, runtime, status, registered_by, created_at FROM workers WHERE node_id = ?1 AND status = 'active'",
         )?;
         let workers = stmt
             .query_map(params![node_id], |row| {
                 let group: String = row.get(0)?;
-                let ts: String = row.get(7)?;
+                let ts: String = row.get(8)?;
                 Ok((
                     group,
                     Worker {
@@ -780,8 +785,9 @@ impl Database {
                         description: row.get(2)?,
                         instructions: row.get(3)?,
                         node_id: row.get(4)?,
-                        status: row.get(5)?,
-                        registered_by: row.get(6)?,
+                        runtime: row.get(5)?,
+                        status: row.get(6)?,
+                        registered_by: row.get(7)?,
                         created_at: Database::parse_ts(&ts),
                     },
                 ))
@@ -897,7 +903,7 @@ mod tests {
         let db = test_db();
         let (alice, _) = db.create_user("alice", false).unwrap();
 
-        db.register_worker("alice", "reviewer", "Code reviewer", "Review code.", "local", &alice.id)
+        db.register_worker("alice", "reviewer", "Code reviewer", "Review code.", "local", "auto", &alice.id)
             .unwrap();
 
         let workers = db.list_workers("alice").unwrap();
@@ -912,7 +918,7 @@ mod tests {
         // But visible in shared group
         db.create_group("team", &alice.id).unwrap();
         db.add_group_member("team", &bob.id).unwrap();
-        db.register_worker("team", "shared-reviewer", "Shared reviewer", "Review.", "local", &alice.id)
+        db.register_worker("team", "shared-reviewer", "Shared reviewer", "Review.", "local", "auto", &alice.id)
             .unwrap();
 
         let team_workers = db.list_workers("team").unwrap();
@@ -945,7 +951,7 @@ mod tests {
         db.create_group("team", &alice.id).unwrap();
         db.add_group_member("team", &bob.id).unwrap();
 
-        db.register_worker("team", "reviewer", "Reviewer", "Review.", "local", &alice.id)
+        db.register_worker("team", "reviewer", "Reviewer", "Review.", "local", "auto", &alice.id)
             .unwrap();
 
         // Bob cannot remove Alice's worker

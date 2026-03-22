@@ -99,6 +99,9 @@ enum WorkerCommand {
         instructions: String,
         #[arg(long, default_value = "local")]
         node: String,
+        /// Runtime: auto (default), claude, or codex
+        #[arg(long, default_value = "auto")]
+        runtime: String,
     },
     Ls {
         #[arg(long)]
@@ -222,11 +225,11 @@ async fn main() {
         Command::Invite { name } => cmd_invite(&name).await,
 
         Command::Worker { command } => match command {
-            WorkerCommand::Add { group, name, description, instructions, node } => { let group = resolve_group(group);
+            WorkerCommand::Add { group, name, description, instructions, node, runtime } => { let group = resolve_group(group);
                 let cfg = config::CliConfig::load();
                 let client = make_client(&cfg);
-                match client.register_worker(&group, &name, &description, &instructions, &node).await {
-                    Ok(w) => println!("Worker \"{}\" registered in group \"{}\" on node \"{}\".", w.name, group, w.node_id),
+                match client.register_worker(&group, &name, &description, &instructions, &node, &runtime).await {
+                    Ok(w) => println!("Worker \"{}\" registered in group \"{}\" on node \"{}\" (runtime: {}).", w.name, group, w.node_id, w.runtime),
                     Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
                 }
             }
@@ -518,7 +521,7 @@ async fn cmd_worker_temp(group: &str, task: &str, instructions: &str) {
     let client = make_client(&cfg);
 
     let temp_name = format!("temp-{}", &uuid::Uuid::new_v4().to_string()[..8]);
-    if let Err(e) = client.register_worker(group, &temp_name, "", instructions, "local").await {
+    if let Err(e) = client.register_worker(group, &temp_name, "", instructions, "local", "auto").await {
         eprintln!("Error: {}", e); std::process::exit(1);
     }
 

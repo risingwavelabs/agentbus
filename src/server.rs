@@ -65,10 +65,16 @@ struct RegisterWorkerRequest {
     instructions: String,
     #[serde(default = "default_node_id")]
     node_id: String,
+    #[serde(default = "default_runtime")]
+    runtime: String,
 }
 
 fn default_node_id() -> String {
     "local".to_string()
+}
+
+fn default_runtime() -> String {
+    "auto".to_string()
 }
 
 #[derive(Deserialize)]
@@ -299,7 +305,7 @@ async fn register_worker_handler(
         }
     }
 
-    match state.db.register_worker(&group_name, &req.name, &req.description, &req.instructions, &req.node_id, &caller.user.id) {
+    match state.db.register_worker(&group_name, &req.name, &req.description, &req.instructions, &req.node_id, &req.runtime, &caller.user.id) {
         Ok(worker) => (StatusCode::CREATED, Json(serde_json::to_value(worker).unwrap())).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }

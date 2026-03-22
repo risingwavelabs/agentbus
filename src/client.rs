@@ -100,10 +100,10 @@ impl BhClient {
 
     // --- Workers (group-scoped) ---
 
-    pub async fn register_worker(&self, group: &str, name: &str, description: &str, instructions: &str, node_id: &str) -> Result<crate::db::Worker> {
+    pub async fn register_worker(&self, group: &str, name: &str, description: &str, instructions: &str, node_id: &str, runtime: &str) -> Result<crate::db::Worker> {
         let req = self.client
             .post(format!("{}/groups/{}/workers", self.base_url, group))
-            .json(&serde_json::json!({"name": name, "description": description, "instructions": instructions, "node_id": node_id}));
+            .json(&serde_json::json!({"name": name, "description": description, "instructions": instructions, "node_id": node_id, "runtime": runtime}));
         let resp = self.request(req).await?;
         Ok(resp.json().await?)
     }
