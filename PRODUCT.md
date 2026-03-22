@@ -189,7 +189,7 @@ Not in scope for MVP. Recorded here for future reference.
 
 The lead uses both:
 - **box0-channel (MCP)**: receives push notifications (worker results, worker questions)
-- **bh CLI**: sends tasks (`delegate`), manages workers, etc.
+- **b0 CLI**: sends tasks (`delegate`), manages workers, etc.
 
 ```
 Lead (Claude Code)
