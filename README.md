@@ -65,12 +65,7 @@ For Codex:
 b0 skill install codex
 ```
 
-For other agents:
-
-```bash
-# Prints skill content to stdout. Paste into your agent's custom instructions.
-b0 skill show
-```
+For other agents, run `b0 skill show` to print the skill content. Paste it into your agent's custom instructions.
 
 ### 4. Use it
 
