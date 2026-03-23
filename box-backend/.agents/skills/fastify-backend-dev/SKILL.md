@@ -1,6 +1,14 @@
 ---
 name: fastify-backend-dev
-description: Use when working on this backend’s TypeScript/Fastify files such as `src/**/*.ts`, `test/**/*.ts`, `package.json`, `.env.example`, or `Dockerfile`, especially for adding modules or routes, changing config/plugins, updating validation/logging/error handling, or extending tests. Apply project rules: feature-first modules under `src/modules`, shared infrastructure under `src/config` and `src/plugins`, schema-first TypeBox routes, `buildApp()`/`server.ts` separation, `pnpm` + `oxlint` + `vitest` verification.
+description: >-
+  Use when working on this backend's TypeScript/Fastify files such as
+  `src/**/*.ts`, `test/**/*.ts`, `package.json`, `.env.example`, or
+  `Dockerfile`, especially for adding modules or routes, changing
+  config/plugins, updating validation/logging/error handling, or extending
+  tests. Apply project rules: feature-first modules under `src/modules`,
+  shared infrastructure under `src/config` and `src/plugins`, schema-first
+  TypeBox routes, `buildApp()`/`server.ts` separation, `pnpm` + `oxlint` +
+  `vitest` verification.
 ---
 
 # Fastify Backend Dev
