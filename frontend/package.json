@@ -7,19 +7,23 @@
     "dev": "vite dev",
     "build": "vite build && tsc --noEmit",
     "preview": "vite preview",
-    "start": "pnpx srvx --prod -s ../client dist/server/server.js"
+    "start": "pnpx srvx --prod -s ../client dist/server/server.js",
+    "gen": "cd ../box-backend && pnpm generate:openapi && cd ../frontend && openapi-ts"
   },
   "dependencies": {
+    "@hey-api/openapi-ts": "^0.94.4",
     "@tanstack/react-query": "^5.90.0",
     "@tanstack/react-query-devtools": "^5.90.0",
     "@tanstack/react-router": "^1.168.2",
     "@tanstack/react-router-devtools": "^1.166.11",
     "@tanstack/react-router-ssr-query": "^1.166.10",
     "@tanstack/react-start": "^1.167.3",
+    "ofetch": "^1.5.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "redaxios": "^0.5.1",
-    "tailwind-merge": "^2.6.0"
+    "tailwind-merge": "^2.6.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.2.2",
