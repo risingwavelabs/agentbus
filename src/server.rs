@@ -201,12 +201,8 @@ async fn get_inbox_messages_handler(
         return e;
     }
 
-    // Verify agent exists
-    match state.db.get_agent(&workspace_name, &agent_name) {
-        Ok(Some(_)) => {}
-        Ok(None) => return error_response(StatusCode::NOT_FOUND, "agent not found"),
-        Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
-    }
+    // Don't require agent to be registered — leads poll their inbox
+    // without being registered as agents in the agents table.
 
     let timeout = params.timeout.unwrap_or(0.0).clamp(0.0, 30.0);
     let start = std::time::Instant::now();
