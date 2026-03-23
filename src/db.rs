@@ -975,6 +975,20 @@ impl Database {
         .map_err(Into::into)
     }
 
+    /// Delete temp agents older than the given number of seconds.
+    /// Returns the number of agents deleted.
+    pub fn cleanup_expired_temp_agents(&self, max_age_secs: i64) -> Result<usize> {
+        let conn = self.conn.lock().unwrap();
+        let cutoff = (chrono::Utc::now() - chrono::Duration::seconds(max_age_secs))
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string();
+        let deleted = conn.execute(
+            "DELETE FROM agents WHERE temp = 1 AND created_at < ?1",
+            params![cutoff],
+        )?;
+        Ok(deleted)
+    }
+
     // --- Cron Jobs ---
 
     pub fn create_cron_job(

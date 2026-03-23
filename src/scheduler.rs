@@ -4,6 +4,7 @@ use crate::db::CronJob;
 use crate::server::SharedState;
 
 const SCHEDULER_INTERVAL_SECS: u64 = 60;
+const TEMP_AGENT_MAX_AGE_SECS: i64 = 86400; // 24 hours
 
 /// Parse a schedule string and return the interval in seconds.
 /// Supported formats:
@@ -56,6 +57,13 @@ pub async fn run(state: SharedState) {
 
     loop {
         tokio::time::sleep(interval).await;
+
+        // Clean up expired temp agents
+        match state.db.cleanup_expired_temp_agents(TEMP_AGENT_MAX_AGE_SECS) {
+            Ok(n) if n > 0 => tracing::info!("Cleaned up {} expired temp agents", n),
+            Err(e) => tracing::error!("Failed to clean up temp agents: {}", e),
+            _ => {}
+        }
 
         let jobs = match state.db.get_all_enabled_cron_jobs() {
             Ok(j) => j,
