@@ -4,27 +4,58 @@ Box0 can send Slack messages when agents complete or fail a task.
 
 ## Setup
 
-### 1. Create a Slack app
+### 1. Create a Slack app from manifest
 
-Go to [api.slack.com/apps](https://api.slack.com/apps) and create a new app for your workspace.
+Go to [api.slack.com/apps](https://api.slack.com/apps), click **Create New App**, then choose **From a manifest**.
 
-### 2. Add permissions
+Select your workspace and paste this JSON:
 
-Under **OAuth & Permissions**, add the `chat:write` bot scope.
+```json
+{
+  "_metadata": {
+    "major_version": 1,
+    "minor_version": 1
+  },
+  "display_information": {
+    "name": "Box0",
+    "description": "Box0 agent notifications"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Box0",
+      "always_online": false
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "chat:write"
+      ]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "is_hosted": false
+  }
+}
+```
 
-### 3. Install to workspace
+Click **Create**, then **Install to Workspace** and **Allow**.
 
-Install the app to your Slack workspace and copy the **Bot User OAuth Token** (starts with `xoxb-`).
+### 2. Copy the bot token
 
-### 4. Invite the bot
+Go to **OAuth & Permissions** in the left sidebar and copy the **Bot User OAuth Token** (starts with `xoxb-`).
 
-Invite the bot to any channel you want notifications in:
+### 3. Invite the bot
+
+In Slack, invite the bot to any channel you want notifications in:
 
 ```
-/invite @your-bot-name
+/invite @Box0
 ```
 
-### 5. Configure Box0
+### 4. Configure Box0
 
 Set the token as an environment variable before starting the server:
 
