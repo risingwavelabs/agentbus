@@ -537,7 +537,10 @@ async fn create_cron_handler(
     if let Err(e) = require_workspace_member(&state, &caller, &workspace_name) {
         return e;
     }
-    // Validate schedule
+    // Validate
+    if req.task.trim().is_empty() {
+        return error_response(StatusCode::BAD_REQUEST, "task is required");
+    }
     if crate::scheduler::parse_schedule_secs(&req.schedule).is_none() {
         return error_response(StatusCode::BAD_REQUEST, "invalid schedule. Use: 30s, 5m, 1h, 6h, 1d");
     }

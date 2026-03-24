@@ -526,6 +526,7 @@ async fn main() {
                 let client = make_client(&cfg);
 
                 // Auto-create agent if not specified
+                let auto_created = agent.is_none();
                 let agent_name = match agent {
                     Some(a) => a,
                     None => {
@@ -540,7 +541,11 @@ async fn main() {
 
                 match client.create_cron_job(&workspace, &agent_name, &every, &task).await {
                     Ok(job) => println!("Cron job \"{}\" created. Agent \"{}\" will run every {}.", job.id, agent_name, every),
-                    Err(e) => { eprintln!("Error: {}", e); std::process::exit(1); }
+                    Err(e) => {
+                        // Roll back auto-created agent if cron job creation fails
+                        if auto_created { let _ = client.remove_agent(&workspace, &agent_name).await; }
+                        eprintln!("Error: {}", e); std::process::exit(1);
+                    }
                 }
             }
             CronCommand::Ls { workspace } => { let workspace = resolve_workspace(workspace);
