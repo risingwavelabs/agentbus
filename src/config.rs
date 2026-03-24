@@ -225,9 +225,9 @@ impl CliConfig {
     /// Generate the core skill content (agent-agnostic).
     pub fn skill_content(server_url: &str) -> String {
         format!(
-r#"# Box0 (`b0`) Agent Delegation
+r#"# Box0 (`b0`) Multi-Agent Platform
 
-You have access to a team of specialized AI agents managed by Box0.
+Run AI agents in parallel on one machine or many. Delegate tasks, collect results, schedule cron jobs.
 The server is at: {server_url}
 
 ## When to use
@@ -248,8 +248,10 @@ b0 wait --timeout 0                                    # non-blocking check for 
 b0 reply <thread-id> "<answer>"                        # answer an agent's question
 b0 status                                              # check pending tasks
 b0 agent temp "<task>"                                 # one-off task, no named agent
-b0 cron add --every <interval> "<task>"                 # schedule recurring task (auto-creates temp agent)
-b0 cron add --agent <name> --every <interval> "<task>"  # schedule with existing agent
+b0 agent add <name> --instructions "..."               # create a named agent
+b0 agent remove <name>                                 # delete an agent
+b0 cron add --every <interval> "<task>"                # schedule recurring task (auto-creates temp agent)
+b0 cron add --agent <name> --every <interval> "<task>" # schedule with existing agent
 b0 cron ls                                             # list scheduled tasks
 b0 cron remove <id>                                    # remove a scheduled task
 ```
@@ -272,9 +274,9 @@ Cite line numbers for any issues found."
 ```
 
 Steps:
-1. **Gather context first** — read relevant files, run `git diff`, check the branch
-2. **Include specifics** — file paths, line numbers, branch names, what changed and why
-3. **State the deliverable** — what the agent should produce (a list of issues, a summary, a fix)
+1. **Gather context first** - read relevant files, run `git diff`, check the branch
+2. **Include specifics** - file paths, line numbers, branch names, what changed and why
+3. **State the deliverable** - what the agent should produce (a list of issues, a summary, a fix)
 
 For large content (diffs, file contents), pipe via stdin:
 ```
@@ -289,10 +291,10 @@ Delegate to multiple agents, then collect all results:
 b0 delegate reviewer "Review the changes on branch feature-timeout..."
 b0 delegate security "Check src/handler.rs for OWASP top 10 vulnerabilities..."
 b0 delegate doc-writer "Update README to reflect the new timeout config option..."
-b0 wait
+b0 wait --all
 ```
 
-All three run in parallel. `b0 wait` blocks until all complete.
+All three run in parallel. `b0 wait --all` blocks until all complete.
 
 ## Handling agent questions
 
