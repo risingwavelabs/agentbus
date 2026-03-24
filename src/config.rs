@@ -168,6 +168,31 @@ impl CliConfig {
         self.server_url.clone()
     }
 
+    /// Acquire an exclusive file lock for pending.json operations.
+    /// Hold the returned guard across load + modify + save to prevent races.
+    pub fn lock_pending() -> PendingLock {
+        let dir = Self::config_dir();
+        let _ = fs::create_dir_all(&dir);
+        let lock_path = dir.join("pending.lock");
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(lock_path)
+            .expect("failed to open pending lock file");
+        #[cfg(unix)]
+        {
+            use std::os::unix::io::AsRawFd;
+            let fd = file.as_raw_fd();
+            unsafe {
+                let mut flock: libc::flock = std::mem::zeroed();
+                flock.l_type = libc::F_WRLCK as i16;
+                flock.l_whence = libc::SEEK_SET as i16;
+                libc::fcntl(fd, libc::F_SETLKW, &flock);
+            }
+        }
+        PendingLock { _file: file }
+    }
+
     pub fn load_pending() -> PendingState {
         let path = Self::pending_path();
         match fs::read_to_string(&path) {
@@ -423,6 +448,11 @@ allowed-tools:
 }
 
 // --- Pending State ---
+
+/// File lock guard for pending.json. Lock is released when dropped.
+pub struct PendingLock {
+    _file: std::fs::File,
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PendingState {

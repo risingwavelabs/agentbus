@@ -768,6 +768,7 @@ async fn cmd_agent_temp(workspace: &str, task: &str, instructions: &str, runtime
     let thread_id = format!("thread-{}", &uuid::Uuid::new_v4().to_string()[..8]);
     match client.send_message(workspace, &temp_name, &thread_id, &lead_id, "request", Some(&serde_json::json!(task))).await {
         Ok(_) => {
+            let _lock = config::CliConfig::lock_pending();
             let mut pending = config::CliConfig::load_pending();
             pending.threads.insert(thread_id.clone(), config::PendingThread {
                 agent: temp_name,
@@ -807,6 +808,7 @@ async fn cmd_delegate(workspace: &str, agent: &str, task: &str, continue_thread:
 
     match client.send_message(workspace, agent, &thread_id, &lead_id, msg_type, Some(&serde_json::json!(task))).await {
         Ok(_) => {
+            let _lock = config::CliConfig::lock_pending();
             let mut pending = config::CliConfig::load_pending();
             pending.threads.insert(thread_id.clone(), config::PendingThread {
                 agent: agent.to_string(),
@@ -887,8 +889,13 @@ async fn cmd_wait(wait_all: bool) {
                             println!("{} done ({}): {}", agent_name, elapsed, content);
                             pending.threads.remove(&msg.thread_id);
                             let _ = client.ack_message(workspace, &msg.id).await;
+                            { // locked read-modify-write
+                                let _lock = config::CliConfig::lock_pending();
+                                let mut fresh = config::CliConfig::load_pending();
+                                fresh.threads.remove(&msg.thread_id);
+                                let _ = config::CliConfig::save_pending(&fresh);
+                            }
                             if !wait_all {
-                                let _ = config::CliConfig::save_pending(&pending);
                                 return;
                             }
                             if !pending.threads.is_empty() {
@@ -903,8 +910,13 @@ async fn cmd_wait(wait_all: bool) {
                             eprintln!("{} failed ({}): {}", agent_name, elapsed, content);
                             pending.threads.remove(&msg.thread_id);
                             let _ = client.ack_message(workspace, &msg.id).await;
+                            { // locked read-modify-write
+                                let _lock = config::CliConfig::lock_pending();
+                                let mut fresh = config::CliConfig::load_pending();
+                                fresh.threads.remove(&msg.thread_id);
+                                let _ = config::CliConfig::save_pending(&fresh);
+                            }
                             if !wait_all {
-                                let _ = config::CliConfig::save_pending(&pending);
                                 return;
                             }
                             if !pending.threads.is_empty() {
@@ -936,7 +948,6 @@ async fn cmd_wait(wait_all: bool) {
             print_status(&status, &pending, is_tty, &mut status_lines_printed);
         }
 
-        let _ = config::CliConfig::save_pending(&pending);
     }
 }
 
@@ -993,6 +1004,7 @@ async fn cmd_reply(workspace: &str, thread_id: &str, message: &str) {
     match client.send_message(workspace, &agent, thread_id, &lead_id, "answer", Some(&serde_json::json!(message))).await {
         Ok(_) => {
             // Re-add to pending so b0 wait can collect the response
+            let _lock = config::CliConfig::lock_pending();
             let mut pending = config::CliConfig::load_pending();
             pending.threads.insert(thread_id.to_string(), config::PendingThread {
                 agent: agent.clone(),
