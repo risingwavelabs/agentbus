@@ -26,6 +26,10 @@ Teach your agent to use Box0:
 b0 skill install claude-code
 ```
 
+```bash
+b0 skill install codex
+```
+
 Then open Claude Code and say:
 
 > Create three agents: an optimist, a pessimist, and a realist. Ask them to debate whether AI will replace software engineers in 5 years. Give me your own conclusion.
