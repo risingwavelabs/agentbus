@@ -39,12 +39,6 @@ Box0 handles all of this:
 
 > Have the implementer add input validation to the signup form. Then have the attacker try to bypass it. Iterate until the attacker gives up.
 
-## How it works
-
-Your agent sends tasks to the Box0 server via `b0 delegate`. The server stores them in an inbox. The daemon picks up each task, spawns a separate Claude Code (or Codex) process, and writes the results back. Your agent calls `b0 wait` to collect the responses.
-
-Each agent runs in its own isolated directory. Agents can also run across multiple machines. See [Multi-machine](docs/multi-machine.md).
-
 ## Getting started
 
 ### 1. Install
