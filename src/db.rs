@@ -41,6 +41,26 @@ pub struct InboxMessage {
     pub created_at: DateTime<Utc>,
 }
 
+/// Inbox message enriched with workspace and agent metadata, for machine-level polling.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MachineInboxMessage {
+    pub id: String,
+    pub workspace: String,
+    pub thread_id: String,
+    #[serde(rename = "from")]
+    pub from_id: String,
+    #[serde(rename = "to")]
+    pub to_id: String,
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    pub content: Option<serde_json::Value>,
+    pub status: String,
+    pub created_at: DateTime<Utc>,
+    pub agent_instructions: Option<String>,
+    pub agent_runtime: Option<String>,
+    pub agent_timeout: Option<u64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Agent {
     pub name: String,
@@ -798,6 +818,45 @@ impl Database {
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(agents)
+    }
+
+    /// Get all unread request/answer messages for agents on a given machine.
+    /// Joins with agents table to include instructions, runtime, and timeout.
+    pub fn get_unread_messages_for_machine(
+        &self,
+        machine_id: &str,
+    ) -> Result<Vec<MachineInboxMessage>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT m.id, m.workspace_name, m.thread_id, m.from_id, m.to_id, m.type, m.content, m.status, m.created_at, a.instructions, a.runtime, a.timeout
+             FROM inbox_messages m
+             JOIN agents a ON a.name = m.to_id AND a.workspace_name = m.workspace_name
+             WHERE a.machine_id = ?1 AND a.status = 'active' AND m.status = 'unread'
+               AND m.type IN ('request', 'answer')
+             ORDER BY m.created_at ASC",
+        )?;
+        let messages = stmt
+            .query_map(params![machine_id], |row| {
+                let content_str: Option<String> = row.get(6)?;
+                let ts: String = row.get(8)?;
+                let timeout_i: i64 = row.get(11)?;
+                Ok(MachineInboxMessage {
+                    id: row.get(0)?,
+                    workspace: row.get(1)?,
+                    thread_id: row.get(2)?,
+                    from_id: row.get(3)?,
+                    to_id: row.get(4)?,
+                    msg_type: row.get(5)?,
+                    content: content_str.and_then(|s| serde_json::from_str(&s).ok()),
+                    status: row.get(7)?,
+                    created_at: Database::parse_ts(&ts),
+                    agent_instructions: row.get(9)?,
+                    agent_runtime: row.get(10)?,
+                    agent_timeout: if timeout_i > 0 { Some(timeout_i as u64) } else { None },
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(messages)
     }
 
     pub fn get_agent_logs(

@@ -6,9 +6,10 @@ use tokio::sync::{Mutex, Semaphore};
 use crate::client::BhClient;
 use crate::server::SharedState;
 
-const POLL_INTERVAL_MS: u64 = 2000;
+const MAX_IDLE_INTERVAL: Duration = Duration::from_secs(30);
 const MAX_CONCURRENT_TASKS: usize = 4;
 const TASK_TIMEOUT_SECS: u64 = 300;
+const REMOTE_POLL_TIMEOUT: f64 = 30.0;
 
 /// Session tracker for multi-turn conversations.
 /// Maps thread_id -> Claude CLI session_id.
@@ -21,7 +22,6 @@ pub async fn run_local(state: SharedState, workspace_root: std::path::PathBuf) {
 
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_TASKS));
     let sessions: Sessions = Arc::new(Mutex::new(HashMap::new()));
-    let poll_interval = Duration::from_millis(POLL_INTERVAL_MS);
     let workspace_root = Arc::new(workspace_root);
 
     loop {
@@ -30,10 +30,12 @@ pub async fn run_local(state: SharedState, workspace_root: std::path::PathBuf) {
             Ok(a) => a,
             Err(e) => {
                 tracing::error!("Failed to get agents: {}", e);
-                tokio::time::sleep(poll_interval).await;
+                tokio::time::sleep(Duration::from_secs(5)).await;
                 continue;
             }
         };
+
+        let mut had_work = false;
 
         for (tenant, agent) in &tenant_agents {
             let messages = match state
@@ -49,6 +51,8 @@ pub async fn run_local(state: SharedState, workspace_root: std::path::PathBuf) {
                     let _ = state.db.ack_inbox_message(tenant, &msg.id);
                     continue;
                 }
+
+                had_work = true;
 
                 let permit = match semaphore.clone().try_acquire_owned() {
                     Ok(p) => p,
@@ -170,7 +174,16 @@ pub async fn run_local(state: SharedState, workspace_root: std::path::PathBuf) {
             }
         }
 
-        tokio::time::sleep(poll_interval).await;
+        if had_work {
+            // If we processed messages, check again immediately for more
+            continue;
+        }
+
+        // No work found. Wait for a notification or max idle interval.
+        let _ = tokio::time::timeout(
+            MAX_IDLE_INTERVAL,
+            state.inbox_notify.notified(),
+        ).await;
     }
 }
 
@@ -198,7 +211,6 @@ pub async fn run_remote(server_url: &str, machine_id: &str, api_key: Option<&str
 
     let semaphore = Arc::new(Semaphore::new(MAX_CONCURRENT_TASKS));
     let sessions: Sessions = Arc::new(Mutex::new(HashMap::new()));
-    let poll_interval = Duration::from_millis(POLL_INTERVAL_MS);
     let heartbeat_interval = Duration::from_secs(30);
     let mut last_heartbeat = std::time::Instant::now();
 
@@ -209,134 +221,127 @@ pub async fn run_remote(server_url: &str, machine_id: &str, api_key: Option<&str
             last_heartbeat = std::time::Instant::now();
         }
 
-        let agents = match client.machine_agents(machine_id).await {
-            Ok(a) => a,
+        // Long-poll: ask server for all unread messages on this machine.
+        // Server holds the connection up to REMOTE_POLL_TIMEOUT seconds,
+        // returning immediately when a message arrives.
+        let poll_result = client.poll_machine(machine_id, REMOTE_POLL_TIMEOUT).await;
+
+        let messages = match poll_result {
+            Ok(m) => m,
             Err(e) => {
-                tracing::error!("Failed to get agents: {}", e);
-                tokio::time::sleep(poll_interval).await;
+                tracing::error!("Failed to poll machine inbox: {}", e);
+                tokio::time::sleep(Duration::from_secs(5)).await;
                 continue;
             }
         };
 
-        for (workspace, agent) in &agents {
-            let messages = match client
-                .get_inbox(workspace, &agent.name, Some("unread"), Some(0.0))
-                .await
-            {
-                Ok(m) => m,
-                Err(_) => continue,
+        for msg in messages {
+            if msg.msg_type != "request" && msg.msg_type != "answer" {
+                let _ = client.ack_message(&msg.workspace, &msg.id).await;
+                continue;
+            }
+
+            let permit = match semaphore.clone().try_acquire_owned() {
+                Ok(p) => p,
+                Err(_) => break, // Leave message unread so it gets picked up next poll
             };
 
-            for msg in messages {
-                if msg.msg_type != "request" && msg.msg_type != "answer" {
-                    let _ = client.ack_message(workspace, &msg.id).await;
-                    continue;
+            // Ack only after acquiring permit to prevent message loss
+            let _ = client.ack_message(&msg.workspace, &msg.id).await;
+
+            let client = client.clone();
+            let workspace = msg.workspace.clone();
+            let agent_name = msg.to_id.clone();
+            // Look up agent instructions from the message metadata
+            let instructions = msg.agent_instructions.clone().unwrap_or_default();
+            let agent_runtime = msg.agent_runtime.clone().unwrap_or_else(|| "auto".to_string());
+            let agent_timeout = msg.agent_timeout.unwrap_or(TASK_TIMEOUT_SECS);
+            let workspace_root = workspace_root.clone();
+            let sessions = sessions.clone();
+
+            tokio::spawn(async move {
+                let _permit = permit;
+
+                // Create agent directory
+                let agent_dir = workspace_root.join(&agent_name);
+                if let Err(e) = tokio::fs::create_dir_all(&agent_dir).await {
+                    tracing::error!(agent = agent_name, error = %e, "Failed to create agent directory");
+                    return;
                 }
 
-                let permit = match semaphore.clone().try_acquire_owned() {
-                    Ok(p) => p,
-                    Err(_) => break, // Leave message unread so it gets picked up next poll
+                let task_content = msg
+                    .content
+                    .as_ref()
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+
+                let resume_session = if msg.msg_type == "answer" {
+                    sessions.lock().await.get(&msg.thread_id).cloned()
+                } else {
+                    None
                 };
 
-                // Ack only after acquiring permit to prevent message loss
-                let _ = client.ack_message(workspace, &msg.id).await;
+                let resolved_rt = resolve_runtime(&agent_runtime);
+                tracing::info!(
+                    agent = msg.to_id,
+                    thread = msg.thread_id,
+                    runtime = resolved_rt,
+                    dir = %agent_dir.display(),
+                    "Processing task"
+                );
 
-                let client = client.clone();
-                let workspace = workspace.clone();
-                let agent_name = agent.name.clone();
-                let instructions = agent.instructions.clone();
-                let agent_runtime = agent.runtime.clone();
-                let agent_timeout = if agent.timeout > 0 { agent.timeout as u64 } else { TASK_TIMEOUT_SECS };
-                let workspace_root = workspace_root.clone();
-                let sessions = sessions.clone();
-                let msg = msg.clone();
+                // Notify lead that we started processing
+                let _ = client
+                    .send_message(
+                        &workspace,
+                        &msg.from_id,
+                        &msg.thread_id,
+                        &msg.to_id,
+                        "started",
+                        None,
+                    )
+                    .await;
 
-                tokio::spawn(async move {
-                    let _permit = permit;
-
-                    // Create agent directory
-                    let agent_dir = workspace_root.join(&agent_name);
-                    if let Err(e) = tokio::fs::create_dir_all(&agent_dir).await {
-                        tracing::error!(agent = agent_name, error = %e, "Failed to create agent directory");
-                        return;
-                    }
-
-                    let task_content = msg
-                        .content
-                        .as_ref()
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-
-                    let resume_session = if msg.msg_type == "answer" {
-                        sessions.lock().await.get(&msg.thread_id).cloned()
-                    } else {
-                        None
-                    };
-
-                    let resolved_rt = resolve_runtime(&agent_runtime);
-                    tracing::info!(
-                        agent = msg.to_id,
-                        thread = msg.thread_id,
-                        runtime = resolved_rt,
-                        dir = %agent_dir.display(),
-                        "Processing task"
-                    );
-
-                    // Notify lead that we started processing
-                    let _ = client
-                        .send_message(
-                            &workspace,
-                            &msg.from_id,
-                            &msg.thread_id,
-                            &msg.to_id,
-                            "started",
-                            None,
-                        )
+                let result =
+                    invoke_runtime(&agent_runtime, &instructions, &task_content, resume_session.as_deref(), Some(&agent_dir), agent_timeout)
                         .await;
 
-                    let result =
-                        invoke_runtime(&agent_runtime, &instructions, &task_content, resume_session.as_deref(), Some(&agent_dir), agent_timeout)
+                match result {
+                    Ok(output) => {
+                        if let Some(sid) = &output.session_id {
+                            sessions
+                                .lock()
+                                .await
+                                .insert(msg.thread_id.clone(), sid.clone());
+                        }
+
+                        let _ = client
+                            .send_message(
+                                &workspace,
+                                &msg.from_id,
+                                &msg.thread_id,
+                                &msg.to_id,
+                                "done",
+                                Some(&serde_json::json!(output.text)),
+                            )
                             .await;
-
-                    match result {
-                        Ok(output) => {
-                            if let Some(sid) = &output.session_id {
-                                sessions
-                                    .lock()
-                                    .await
-                                    .insert(msg.thread_id.clone(), sid.clone());
-                            }
-
-                            let _ = client
-                                .send_message(
-                                    &workspace,
-                                    &msg.from_id,
-                                    &msg.thread_id,
-                                    &msg.to_id,
-                                    "done",
-                                    Some(&serde_json::json!(output.text)),
-                                )
-                                .await;
-                        }
-                        Err(e) => {
-                            let _ = client
-                                .send_message(
-                                    &workspace,
-                                    &msg.from_id,
-                                    &msg.thread_id,
-                                    &msg.to_id,
-                                    "failed",
-                                    Some(&serde_json::json!(e.to_string())),
-                                )
-                                .await;
-                        }
                     }
-                });
-            }
+                    Err(e) => {
+                        let _ = client
+                            .send_message(
+                                &workspace,
+                                &msg.from_id,
+                                &msg.thread_id,
+                                &msg.to_id,
+                                "failed",
+                                Some(&serde_json::json!(e.to_string())),
+                            )
+                            .await;
+                    }
+                }
+            });
         }
-
-        tokio::time::sleep(poll_interval).await;
     }
 }
 

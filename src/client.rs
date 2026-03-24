@@ -26,6 +26,11 @@ struct InboxResponse {
 }
 
 #[derive(Debug, Deserialize)]
+struct MachineInboxResponse {
+    messages: Vec<crate::db::MachineInboxMessage>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct InviteResponse {
     pub key: String,
     pub user_id: String,
@@ -210,6 +215,17 @@ impl BhClient {
         let req = self.client.post(format!("{}/machines/{}/heartbeat", self.base_url, id));
         self.request(req).await?;
         Ok(())
+    }
+
+    /// Long-poll for unread messages across all agents on this machine.
+    /// Server holds the connection up to `timeout` seconds.
+    pub async fn poll_machine(&self, machine_id: &str, timeout: f64) -> Result<Vec<crate::db::MachineInboxMessage>> {
+        let url = format!("{}/machines/{}/poll?timeout={}", self.base_url, machine_id, timeout);
+        let req = self.client.get(&url)
+            .timeout(std::time::Duration::from_secs_f64(timeout + 5.0));
+        let resp = self.request(req).await?;
+        let body: MachineInboxResponse = resp.json().await?;
+        Ok(body.messages)
     }
 
     // --- Workspaces ---
