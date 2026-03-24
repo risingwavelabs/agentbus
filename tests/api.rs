@@ -17,7 +17,7 @@ async fn start_test_server() -> (String, String, TempDir) {
     // Register local machine
     db.register_machine("local", &admin_user.id).unwrap();
 
-    let state: SharedState = Arc::new(AppState { db });
+    let state: SharedState = Arc::new(AppState { db, inbox_notify: tokio::sync::Notify::new() });
     let app = box0::server::build_router(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

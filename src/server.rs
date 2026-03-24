@@ -27,6 +27,8 @@ pub struct Caller {
 
 pub struct AppState {
     pub db: Database,
+    /// Notifies the local daemon when new inbox messages arrive.
+    pub inbox_notify: tokio::sync::Notify,
 }
 
 pub type SharedState = Arc<AppState>;
@@ -214,6 +216,7 @@ async fn send_inbox_message_handler(
                 }
             }
 
+            state.inbox_notify.notify_waiters();
             (
                 StatusCode::CREATED,
                 Json(serde_json::json!({"message_id": msg.id, "created_at": msg.created_at})),
@@ -250,11 +253,16 @@ async fn get_inbox_messages_handler(
             Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
         }
 
-        if start.elapsed().as_secs_f64() >= timeout {
+        let remaining = timeout - start.elapsed().as_secs_f64();
+        if remaining <= 0.0 {
             let empty: Vec<crate::db::InboxMessage> = vec![];
             return (StatusCode::OK, Json(serde_json::json!({"messages": empty}))).into_response();
         }
-        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        // Wait for a notification or remaining timeout, whichever comes first
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs_f64(remaining),
+            state.inbox_notify.notified(),
+        ).await;
     }
 }
 
@@ -632,6 +640,44 @@ async fn machine_agents_handler(
     }
 }
 
+#[derive(Deserialize)]
+struct MachinePollQuery {
+    #[serde(default)]
+    timeout: Option<f64>,
+}
+
+/// Long-poll endpoint for remote daemons. Returns all unread request/answer
+/// messages for agents on this machine. Holds the connection up to `timeout`
+/// seconds (max 30) waiting for messages to arrive.
+async fn machine_poll_handler(
+    State(state): State<SharedState>,
+    Path(machine_id): Path<String>,
+    Query(params): Query<MachinePollQuery>,
+) -> impl IntoResponse {
+    let timeout = params.timeout.unwrap_or(0.0).clamp(0.0, 30.0);
+    let start = std::time::Instant::now();
+
+    loop {
+        match state.db.get_unread_messages_for_machine(&machine_id) {
+            Ok(messages) if !messages.is_empty() || timeout <= 0.0 => {
+                return (StatusCode::OK, Json(serde_json::json!({"messages": messages}))).into_response();
+            }
+            Ok(_) => {}
+            Err(e) => return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        }
+
+        let remaining = timeout - start.elapsed().as_secs_f64();
+        if remaining <= 0.0 {
+            let empty: Vec<crate::db::MachineInboxMessage> = vec![];
+            return (StatusCode::OK, Json(serde_json::json!({"messages": empty}))).into_response();
+        }
+        let _ = tokio::time::timeout(
+            std::time::Duration::from_secs_f64(remaining),
+            state.inbox_notify.notified(),
+        ).await;
+    }
+}
+
 async fn list_users_handler(
     State(state): State<SharedState>,
     Extension(caller): Extension<Caller>,
@@ -686,6 +732,7 @@ async fn create_task_handler(
     ) {
         return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
     }
+    state.inbox_notify.notify_waiters();
 
     (StatusCode::CREATED, Json(serde_json::to_value(&task).unwrap())).into_response()
 }
@@ -756,6 +803,7 @@ async fn send_task_message_handler(
     ) {
         return error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string());
     }
+    state.inbox_notify.notify_waiters();
 
     // Set task status back to running
     let _ = state.db.update_task_status(&workspace_name, &task_id, "running", None);
@@ -792,6 +840,7 @@ pub fn build_router(state: SharedState) -> Router {
         .route("/machines", get(list_machines_handler).post(register_machine_handler))
         .route("/machines/{machine_id}/heartbeat", post(heartbeat_machine_handler))
         .route("/machines/{machine_id}/agents", get(machine_agents_handler))
+        .route("/machines/{machine_id}/poll", get(machine_poll_handler))
         .route("/users", get(list_users_handler))
         .route("/users/invite", post(invite_user_handler))
         // Tasks (workspace-scoped)
@@ -996,7 +1045,7 @@ pub async fn run(config: ServerConfig) {
         first_start_info.as_ref().map(|(k, n, i)| (k.as_str(), n.as_str(), i.as_str())),
     );
 
-    let state = Arc::new(AppState { db });
+    let state = Arc::new(AppState { db, inbox_notify: tokio::sync::Notify::new() });
 
     // Spawn daemon for "local" machine
     let daemon_state = state.clone();
