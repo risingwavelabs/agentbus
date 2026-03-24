@@ -134,6 +134,8 @@ b0 skill install codex                       Install skill for Codex
 ## Learn more
 
 - [Multi-machine setup](docs/multi-machine.md) - distribute agents across machines
+- [Cron jobs](docs/cron.md) - schedule recurring tasks
+- [Slack notifications](docs/slack.md) - get notified when agents finish
 - [Workspaces](docs/teams.md) - share a Box0 server with multiple users
 - [Architecture](docs/architecture.md) - task flow, data model, and diagrams
 - [CLI reference](docs/cli.md) - full command reference
