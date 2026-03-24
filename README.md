@@ -1,11 +1,11 @@
-# Box0
+# Box0: Open-Source Multi-Agent Platform
 
 [![npm](https://img.shields.io/npm/v/@box0/cli)](https://www.npmjs.com/package/@box0/cli)
 [![license](https://img.shields.io/github/license/risingwavelabs/box0)](LICENSE)
 [![docs](https://img.shields.io/badge/docs-box0-blue)](https://github.com/risingwavelabs/box0/tree/main/docs)
 [![SKILL.md](https://img.shields.io/badge/SKILL.md-agent%20onboarding-black)](https://raw.githubusercontent.com/risingwavelabs/box0/main/SKILL.md)
 
-Open-source multi-agent platform. Run AI agents in parallel on one machine or many. Single Rust binary, no dependencies. Works with Claude Code and Codex.
+Run AI agents in parallel on one machine or many. Single Rust binary, no dependencies. Works with Claude Code and Codex.
 
 <p align="center">
   <img src="docs/hero.svg" alt="Box0 Architecture" width="800">
@@ -13,9 +13,7 @@ Open-source multi-agent platform. Run AI agents in parallel on one machine or ma
 
 ## Agent onboarding
 
-```
-Read https://raw.githubusercontent.com/risingwavelabs/box0/main/SKILL.md and follow the instructions to install and configure Box0
-```
+Read https://raw.githubusercontent.com/risingwavelabs/box0/main/SKILL.md and follow the instructions to install and configure Box0.
 
 ## Getting started
 
