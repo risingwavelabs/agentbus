@@ -20,17 +20,14 @@ Start the server:
 b0 server
 ```
 
-Teach your agent to use Box0:
+Teach your agent to use Box0 (pick one or both):
 
 ```bash
 b0 skill install claude-code
-```
-
-```bash
 b0 skill install codex
 ```
 
-Then open Claude Code and say:
+Then open Claude Code or Codex and say:
 
 > Create three agents: an optimist, a pessimist, and a realist. Ask them to debate whether AI will replace software engineers in 5 years. Give me your own conclusion.
 
