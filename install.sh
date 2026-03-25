@@ -48,7 +48,9 @@ if [ -w "$INSTALL_DIR" ]; then
   mv "$TMPFILE" "${INSTALL_DIR}/b0"
 else
   echo "  Using sudo to install to ${INSTALL_DIR}"
-  sudo mv "$TMPFILE" "${INSTALL_DIR}/b0"
+  sudo cp "$TMPFILE" "${INSTALL_DIR}/b0"
+  sudo chmod +x "${INSTALL_DIR}/b0"
+  rm -f "$TMPFILE"
 fi
 
 echo "  Installed: $(b0 --version 2>/dev/null || echo 'b0 not in PATH')"
