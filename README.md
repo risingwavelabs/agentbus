@@ -79,7 +79,7 @@ b0 delegate --thread $THREAD researcher "Now factor in DynamoDB."
 
 ```bash
 git diff | b0 delegate reviewer "Review this diff."
-b0 delegate analyst "Summarize this codebase." < @src/
+b0 delegate analyst "Summarize this codebase. @src/"
 ```
 
 **Temp agents.** One-off tasks, no setup.

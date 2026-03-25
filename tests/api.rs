@@ -42,7 +42,7 @@ async fn test_health() {
     let (url, _key, _tmp) = start_test_server().await;
     let client = BhClient::new(&url);
     let version = client.health().await.unwrap();
-    assert_eq!(version, "0.1.0");
+    assert_eq!(version, env!("CARGO_PKG_VERSION"));
 }
 
 #[tokio::test]

@@ -175,7 +175,7 @@ fn require_workspace_member(
 async fn health_handler() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "healthy",
-        "version": "0.1.0"
+        "version": env!("CARGO_PKG_VERSION")
     }))
 }
 
