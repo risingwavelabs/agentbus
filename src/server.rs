@@ -313,7 +313,7 @@ async fn register_agent_handler(
 
     // Validate machine exists and caller owns it
     match state.db.get_machine_owner(&req.machine_id) {
-        Ok(Some(owner)) if req.machine_id == "local" || owner == caller.user.id => {}
+        Ok(Some(owner)) if owner == caller.user.id => {}
         Ok(Some(_)) => {
             return error_response(StatusCode::FORBIDDEN, "you don't own this machine");
         }
@@ -449,8 +449,9 @@ async fn register_machine_handler(
 
 async fn list_machines_handler(
     State(state): State<SharedState>,
+    Extension(caller): Extension<Caller>,
 ) -> impl IntoResponse {
-    match state.db.list_machines() {
+    match state.db.list_machines_for_owner(&caller.user.id) {
         Ok(machines) => (StatusCode::OK, Json(serde_json::json!({"machines": machines}))).into_response(),
         Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }

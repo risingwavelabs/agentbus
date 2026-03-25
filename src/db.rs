@@ -582,6 +582,25 @@ impl Database {
         })
     }
 
+    pub fn list_machines_for_owner(&self, owner: &str) -> Result<Vec<Machine>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, owner, status, last_heartbeat FROM machines WHERE owner = ?1 ORDER BY id ASC",
+        )?;
+        let machines = stmt
+            .query_map(params![owner], |row| {
+                let hb: Option<String> = row.get(3)?;
+                Ok(Machine {
+                    id: row.get(0)?,
+                    owner: row.get(1)?,
+                    status: row.get(2)?,
+                    last_heartbeat: hb.map(|s| Database::parse_ts(&s)),
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(machines)
+    }
+
     pub fn list_machines(&self) -> Result<Vec<Machine>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
