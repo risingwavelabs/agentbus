@@ -26,13 +26,18 @@ Box0 is a multi-agent platform. It lets you run multiple AI agents in parallel a
 - `src/config.rs` - Server config, CLI config, skill installation, pending state
 - `src/scheduler.rs` - Cron job scheduler, runs recurring tasks on interval
 
+## Resource model
+
+- **Machines** belong to the server, not to workspaces. They are physical compute resources shared across all workspaces. Any workspace's agent can be assigned to any machine. `b0 server` auto-creates a `local` machine. Other machines join via `b0 machine join`.
+- **Workspaces** are logical groups for organizing agents, tasks, and team access. They do not own machines.
+- **Agents** belong to a workspace and are assigned to a machine. Workspace controls visibility. Machine controls where the agent runs.
+
 ## Auth model
 
 - Users have unique keys. Keys identify users, not workspaces.
 - Each user gets a personal workspace on creation.
 - Users can be in multiple workspaces. `--workspace` flag selects which workspace to operate in. Defaults to `default_workspace` in config.
 - `b0 login` auto-sets `default_workspace` from user's first workspace. No need for manual config.
-- Machines are owned by users. Only the owner can deploy agents to their machine.
 - Agents track `registered_by`. Only the creator can remove/update/stop their agents.
 - Admin user is created on first server start. Server auto-writes CLI config (no login needed on server machine).
 
