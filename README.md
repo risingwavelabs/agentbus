@@ -11,6 +11,20 @@ Run AI agents in parallel on one machine or many. Single Rust binary, no depende
   <img src="docs/hero.svg" alt="Box0 Architecture" width="800">
 </p>
 
+## What Box0 does
+
+You give your AI agent (Claude Code or Codex) access to Box0. It can then spin up other agents, each with a different role, run them in parallel, and collect the results. You type one message. Your agent handles the rest.
+
+**Parallel code review.** Three agents review the same PR simultaneously: one for correctness, one for security, one for performance.
+
+**Fan-out research.** Five agents each evaluate a different database. Your agent compares their findings.
+
+**Scheduled monitoring.** A cron agent checks production logs every 6 hours and posts to Slack if something looks wrong.
+
+**Divide and conquer.** Split a migration across three agents, one per module. They work in parallel, you merge the results.
+
+**Red team / blue team.** One agent implements input validation. Another tries to bypass it. They iterate until the attacker gives up.
+
 ## Agent onboarding
 
 ```
