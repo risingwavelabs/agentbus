@@ -88,7 +88,10 @@ async fn test_invite_user_and_workspace_membership() {
 
     // Admin creates shared workspace and adds alice
     client.create_workspace("dev-team").await.unwrap();
-    client.add_workspace_member("dev-team", &alice.user_id).await.unwrap();
+    client
+        .add_workspace_member("dev-team", &alice.user_id)
+        .await
+        .unwrap();
 
     // Alice now sees 2 workspaces
     let alice_workspaces = alice_client.list_workspaces().await.unwrap();
@@ -117,7 +120,10 @@ async fn test_agent_crud() {
     assert_eq!(a.instructions, "Review code.");
 
     // Update
-    client.update_agent("admin", "reviewer", "Review carefully.").await.unwrap();
+    client
+        .update_agent("admin", "reviewer", "Review carefully.")
+        .await
+        .unwrap();
     let a = client.get_agent("admin", "reviewer").await.unwrap();
     assert_eq!(a.instructions, "Review carefully.");
 
@@ -176,7 +182,10 @@ async fn test_agent_ownership_permission() {
     // Create shared workspace, invite alice
     let alice = client.invite_user("alice").await.unwrap();
     client.create_workspace("team").await.unwrap();
-    client.add_workspace_member("team", &alice.user_id).await.unwrap();
+    client
+        .add_workspace_member("team", &alice.user_id)
+        .await
+        .unwrap();
 
     let alice_client = BhClient::with_api_key(&url, &alice.key);
 
@@ -191,7 +200,10 @@ async fn test_agent_ownership_permission() {
     assert!(result.is_err());
 
     // Alice can remove her own agent
-    alice_client.remove_agent("team", "alice-agent").await.unwrap();
+    alice_client
+        .remove_agent("team", "alice-agent")
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -206,12 +218,22 @@ async fn test_inbox_roundtrip() {
     // Send message
     let content = serde_json::json!("hello");
     client
-        .send_message("admin", "receiver", "thread-1", "sender", "request", Some(&content))
+        .send_message(
+            "admin",
+            "receiver",
+            "thread-1",
+            "sender",
+            "request",
+            Some(&content),
+        )
         .await
         .unwrap();
 
     // Read inbox
-    let messages = client.get_inbox("admin", "receiver", Some("unread"), None).await.unwrap();
+    let messages = client
+        .get_inbox("admin", "receiver", Some("unread"), None)
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].msg_type, "request");
     assert_eq!(messages[0].thread_id, "thread-1");
@@ -220,7 +242,10 @@ async fn test_inbox_roundtrip() {
     client.ack_message("admin", &messages[0].id).await.unwrap();
 
     // Inbox empty after ack
-    let messages = client.get_inbox("admin", "receiver", Some("unread"), None).await.unwrap();
+    let messages = client
+        .get_inbox("admin", "receiver", Some("unread"), None)
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 0);
 }
 
@@ -235,7 +260,14 @@ async fn test_started_message_flow() {
 
     // Simulate: lead sends request to worker
     client
-        .send_message("admin", "worker-1", "thread-1", "lead", "request", Some(&serde_json::json!("task")))
+        .send_message(
+            "admin",
+            "worker-1",
+            "thread-1",
+            "lead",
+            "request",
+            Some(&serde_json::json!("task")),
+        )
         .await
         .unwrap();
 
@@ -246,7 +278,10 @@ async fn test_started_message_flow() {
         .unwrap();
 
     // Lead sees the started message
-    let messages = client.get_inbox("admin", "lead", Some("unread"), None).await.unwrap();
+    let messages = client
+        .get_inbox("admin", "lead", Some("unread"), None)
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].msg_type, "started");
     assert_eq!(messages[0].from_id, "worker-1");
@@ -256,11 +291,21 @@ async fn test_started_message_flow() {
 
     // Simulate: daemon sends "done" back to lead
     client
-        .send_message("admin", "lead", "thread-1", "worker-1", "done", Some(&serde_json::json!("result")))
+        .send_message(
+            "admin",
+            "lead",
+            "thread-1",
+            "worker-1",
+            "done",
+            Some(&serde_json::json!("result")),
+        )
         .await
         .unwrap();
 
-    let messages = client.get_inbox("admin", "lead", Some("unread"), None).await.unwrap();
+    let messages = client
+        .get_inbox("admin", "lead", Some("unread"), None)
+        .await
+        .unwrap();
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].msg_type, "done");
 }
@@ -308,12 +353,18 @@ async fn test_cron_crud() {
     assert_eq!(jobs[0].id, job.id);
 
     // Disable
-    client.set_cron_enabled("admin", &job.id, false).await.unwrap();
+    client
+        .set_cron_enabled("admin", &job.id, false)
+        .await
+        .unwrap();
     let jobs = client.list_cron_jobs("admin").await.unwrap();
     assert!(!jobs[0].enabled);
 
     // Enable
-    client.set_cron_enabled("admin", &job.id, true).await.unwrap();
+    client
+        .set_cron_enabled("admin", &job.id, true)
+        .await
+        .unwrap();
     let jobs = client.list_cron_jobs("admin").await.unwrap();
     assert!(jobs[0].enabled);
 
@@ -344,7 +395,10 @@ async fn test_task_crud() {
     let client = admin_client(&url, &key);
 
     // Create task (auto-creates temp agent)
-    let task = client.create_task("admin", "Review the code").await.unwrap();
+    let task = client
+        .create_task("admin", "Review the code")
+        .await
+        .unwrap();
     assert!(task.id.starts_with("task-"));
     assert_eq!(task.status, "running");
     assert_eq!(task.title, "Review the code");
@@ -365,7 +419,17 @@ async fn test_task_status_on_done() {
     let task = client.create_task("admin", "Test task").await.unwrap();
 
     // Simulate daemon sending "done" on the task's thread
-    client.send_message("admin", &task.agent_name, &task.thread_id, &task.agent_name, "done", Some(&serde_json::json!("All done"))).await.unwrap();
+    client
+        .send_message(
+            "admin",
+            &task.agent_name,
+            &task.thread_id,
+            &task.agent_name,
+            "done",
+            Some(&serde_json::json!("All done")),
+        )
+        .await
+        .unwrap();
 
     // Task status should be updated to "done"
     let tasks = client.list_tasks("admin").await.unwrap();

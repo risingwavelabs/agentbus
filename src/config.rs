@@ -225,7 +225,7 @@ impl CliConfig {
     /// Generate the core skill content (agent-agnostic).
     pub fn skill_content(server_url: &str) -> String {
         format!(
-r#"# Box0 (`b0`) Multi-Agent Platform
+            r#"# Box0 (`b0`) Agent Delegation
 
 Run AI agents in parallel on one machine or many. Delegate tasks, collect results, schedule cron jobs.
 The server is at: {server_url}
@@ -353,7 +353,7 @@ The agent remembers all previous turns.
         fs::create_dir_all(&dir)?;
 
         let content = format!(
-r#"---
+            r#"---
 name: b0
 description: |
   Delegate tasks to AI agents via Box0. Use when the user asks to

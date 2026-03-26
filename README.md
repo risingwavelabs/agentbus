@@ -33,6 +33,11 @@ Your AI (Claude Code or Codex) delegates work with `b0 delegate`, waits for resu
 Read https://box0.dev/skill.md and follow the instructions to install and configure Box0
 ```
 
+Your agent sends tasks to the Box0 server via `b0 delegate`. The server stores them in an inbox. A node daemon polls the inbox, spawns a separate Claude Code (or Codex) process for each worker, and writes the results back. Your agent calls `b0 wait` to collect the responses.
+
+Each worker runs in its own isolated directory. Workers can also run across multiple machines. See [Multi-machine](docs/multi-machine.md).
+
+Agent runs use a 30 minute default execution timeout. This prevents longer workflow steps from failing at the old 5 minute default on first run.
 ## Getting started
 
 Install:
@@ -53,6 +58,32 @@ Start the server:
 b0 server
 ```
 
+On first start, Box0 creates an admin account and prints your API key.
+
+### Frontend development
+
+The server now prefers `frontend/dist` when it exists, and falls back to the legacy `web/` dashboard otherwise.
+
+For day-to-day frontend development, run Vite separately:
+
+```bash
+cd frontend
+pnpm install
+pnpm dev
+```
+
+Vite proxies `/workspaces`, `/machines`, and `/users` to `http://127.0.0.1:8080` by default. To point it at a different backend, set `B0_FRONTEND_BACKEND_URL`.
+
+To let the Rust server serve the Vue app directly, build the frontend first:
+
+```bash
+cd frontend
+pnpm build
+```
+
+### 3. Teach your agent to use Box0
+
+For Claude Code:
 Teach your agent to use Box0 ([how skills work](docs/skills.md)):
 
 ```bash
@@ -174,6 +205,11 @@ b0 skill install codex                       Install skill for Codex
 - [Workspaces](docs/teams.md) - share a Box0 server with multiple users
 - [Architecture](docs/architecture.md) - task flow, data model, and diagrams
 - [CLI reference](docs/cli.md) - full command reference
+- [Workflows](docs/workflows.md) - agent-first DAG workflow design for Box0
+
+## Web dashboard
+
+Open your browser to the server URL (default `http://localhost:8080`) and log in with your API key. Manage workers, view tasks, monitor nodes, and manage your team from the UI.
 
 ## License
 
