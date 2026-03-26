@@ -13,16 +13,20 @@ Box0 runs multiple AI agents in parallel across your machines. You create agents
 
 ## Box0 vs Subagents
 
+<div align="center">
+
 |               | Subagents              | Box0                              |
-|---------------|------------------------|-----------------------------------|
+|:-------------:|:----------------------:|:---------------------------------:|
 | Setup         | Built-in, zero config  | `npm install`, one binary         |
 | Multi-machine | Single machine only    | One laptop or a fleet of machines |
 | Persistence   | Session only           | Agents and conversations persist  |
-| Scheduling    | No                     | Cron jobs                         |
-| Notifications | No                     | Webhooks, Slack, and more         |
-| Team sharing  | No                     | Workspaces, multi-user            |
-| Dashboard     | No                     | Web UI                            |
+| Scheduling    | :x:                    | Cron jobs                         |
+| Notifications | :x:                    | Webhooks, Slack, and more         |
+| Team sharing  | :x:                    | Workspaces, multi-user            |
+| Dashboard     | :x:                    | Web UI                            |
 | Runtime       | Claude Code only       | Any agent runtime                 |
+
+</div>
 
 ## How it works
 
