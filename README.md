@@ -11,6 +11,19 @@ Box0 runs multiple AI agents in parallel across your machines. You create agents
   <img src="docs/hero.svg" alt="Box0 Architecture" width="800">
 </p>
 
+## Box0 vs Subagents
+
+|               | Subagents              | Box0                              |
+|---------------|------------------------|-----------------------------------|
+| Setup         | Built-in, zero config  | `npm install`, one binary         |
+| Multi-machine | Single machine only    | One laptop or a fleet of machines |
+| Persistence   | Session only           | Agents and conversations persist  |
+| Scheduling    | No                     | Cron jobs                         |
+| Notifications | No                     | Webhooks, Slack, and more         |
+| Team sharing  | No                     | Workspaces, multi-user            |
+| Dashboard     | No                     | Web UI                            |
+| Runtime       | Claude Code only       | Any agent runtime                 |
+
 ## How it works
 
 A **server** coordinates everything. It stores agent definitions, routes tasks, runs the scheduler, and serves a web dashboard. Start one with `b0 server`.
@@ -26,19 +39,6 @@ A **server** coordinates everything. It stores agent definitions, routes tasks, 
 - **temp** - one-off tasks that clean up after themselves. Created with `b0 agent temp "..."`.
 
 Your AI (Claude Code or Codex) delegates work with `b0 delegate`, waits for results with `b0 wait`, and can run multiple agents in parallel. You type one prompt. Your agent handles the rest.
-
-## Box0 vs SubAgents
-
-|               | SubAgents              | Box0                              |
-|---------------|------------------------|-----------------------------------|
-| Setup         | Built-in, zero config  | `npm install`, one binary         |
-| Multi-machine | Single machine only    | One laptop or a fleet of machines |
-| Persistence   | Session only           | Agents and conversations persist  |
-| Scheduling    | No                     | Cron jobs                         |
-| Notifications | No                     | Webhooks, Slack, and more         |
-| Team sharing  | No                     | Workspaces, multi-user            |
-| Dashboard     | No                     | Web UI                            |
-| Runtime       | Claude Code only       | Any agent runtime                 |
 
 ## Agent onboarding
 
