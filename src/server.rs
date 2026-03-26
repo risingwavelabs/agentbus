@@ -330,7 +330,9 @@ async fn send_inbox_message_handler(
         return e;
     }
 
-    let valid_types = ["request", "question", "answer", "done", "failed", "message", "started"];
+    let valid_types = [
+        "request", "question", "answer", "done", "failed", "message", "started",
+    ];
 
     // Only verify agent exists for new requests. Response messages (done, failed,
     // started, answer) target the lead agent which is not in the agents table.
@@ -475,7 +477,10 @@ async fn register_agent_handler(
             return error_response(StatusCode::FORBIDDEN, "you don't own this machine");
         }
         Ok(None) if req.machine_id == "local" => {
-            return error_response(StatusCode::BAD_REQUEST, "no local machine available. This server was started with --no-local. Register a machine first: b0 machine join <server-url> --name <name> --key <key>");
+            return error_response(
+                StatusCode::BAD_REQUEST,
+                "no local machine available. This server was started with --no-local. Register a machine first: b0 machine join <server-url> --name <name> --key <key>",
+            );
         }
         Ok(None) => {
             return error_response(StatusCode::NOT_FOUND, "machine not found");
@@ -1007,7 +1012,10 @@ async fn create_task_handler(
 
     // Check that "local" machine exists (it won't if server was started with --no-local)
     if let Ok(None) = state.db.get_machine_owner("local") {
-        return error_response(StatusCode::BAD_REQUEST, "no local machine available. This server was started with --no-local. Register a machine first: b0 machine join <server-url> --name <name> --key <key>");
+        return error_response(
+            StatusCode::BAD_REQUEST,
+            "no local machine available. This server was started with --no-local. Register a machine first: b0 machine join <server-url> --name <name> --key <key>",
+        );
     }
 
     // Auto-create a temp agent for this task
@@ -1967,7 +1975,10 @@ async fn publish_workflow_handler(
         .db
         .set_workflow_status(&workspace_name, &workflow_id, "published", user_id)
     {
-        Ok(()) => match state.db.get_workflow_definition(&workspace_name, &workflow_id) {
+        Ok(()) => match state
+            .db
+            .get_workflow_definition(&workspace_name, &workflow_id)
+        {
             Ok(Some(definition)) => (
                 StatusCode::OK,
                 Json(serde_json::to_value(definition).unwrap()),
@@ -2542,24 +2553,25 @@ pub async fn run(config: ServerConfig, no_local: bool) {
     };
 
     // Bootstrap admin user on first start + auto-configure local CLI
-    let first_start_info = match db.bootstrap_admin() {
-        Ok(Some((user, key))) => {
-            let mut cli_cfg = crate::config::CliConfig::load();
-            cli_cfg.server_url = format!("http://127.0.0.1:{}", config.port);
-            cli_cfg.api_key = Some(key.clone());
-            cli_cfg.default_workspace = Some(user.name.clone());
-            let _ = cli_cfg.lead_id();
-            if let Err(e) = cli_cfg.save() {
-                tracing::warn!("Failed to auto-configure CLI: {}", e);
+    let first_start_info =
+        match db.bootstrap_admin_with(config.admin_name.as_deref(), config.admin_key.as_deref()) {
+            Ok(Some((user, key))) => {
+                let mut cli_cfg = crate::config::CliConfig::load();
+                cli_cfg.server_url = format!("http://127.0.0.1:{}", config.port);
+                cli_cfg.api_key = Some(key.clone());
+                cli_cfg.default_workspace = Some(user.name.clone());
+                let _ = cli_cfg.lead_id();
+                if let Err(e) = cli_cfg.save() {
+                    tracing::warn!("Failed to auto-configure CLI: {}", e);
+                }
+                Some((key, user.name.clone(), user.id.clone()))
             }
-            Some((key, user.name.clone(), user.id.clone()))
-        }
-        Ok(None) => None,
-        Err(e) => {
-            tracing::error!("Failed to bootstrap admin: {}", e);
-            None
-        }
-    };
+            Ok(None) => None,
+            Err(e) => {
+                tracing::error!("Failed to bootstrap admin: {}", e);
+                None
+            }
+        };
 
     // Auto-register "local" machine owned by admin
     if !no_local {
@@ -2585,7 +2597,11 @@ pub async fn run(config: ServerConfig, no_local: bool) {
             .map(|(k, n, i)| (k.as_str(), n.as_str(), i.as_str())),
     );
 
-    let state = Arc::new(AppState { db, inbox_notify: tokio::sync::Notify::new(), slack_token: config.slack_token.clone() });
+    let state = Arc::new(AppState {
+        db,
+        inbox_notify: tokio::sync::Notify::new(),
+        slack_token: config.slack_token.clone(),
+    });
 
     // Spawn daemon for "local" machine
     if !no_local {

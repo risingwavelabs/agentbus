@@ -16,6 +16,10 @@ pub struct ServerConfig {
     pub log_level: String,
     #[serde(default)]
     pub slack_token: Option<String>,
+    #[serde(default)]
+    pub admin_name: Option<String>,
+    #[serde(default)]
+    pub admin_key: Option<String>,
 }
 
 fn default_host() -> String {
@@ -44,6 +48,8 @@ impl Default for ServerConfig {
             db_path: default_db_path(),
             log_level: default_log_level(),
             slack_token: None,
+            admin_name: None,
+            admin_key: None,
         }
     }
 }
@@ -84,6 +90,16 @@ impl ServerConfig {
         if let Ok(v) = std::env::var("B0_SLACK_TOKEN") {
             if !v.is_empty() {
                 cfg.slack_token = Some(v);
+            }
+        }
+        if let Ok(v) = std::env::var("B0_ADMIN_NAME") {
+            if !v.is_empty() {
+                cfg.admin_name = Some(v);
+            }
+        }
+        if let Ok(v) = std::env::var("B0_ADMIN_KEY") {
+            if !v.is_empty() {
+                cfg.admin_key = Some(v);
             }
         }
 

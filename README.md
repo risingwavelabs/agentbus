@@ -60,6 +60,28 @@ b0 server
 
 On first start, Box0 creates an admin account and prints your API key.
 
+If you want a fixed admin credential for other services, configure it before first start:
+
+```toml
+# server.toml
+admin_name = "service-admin"
+admin_key = "b0_service_admin_key"
+```
+
+```bash
+b0 server --config server.toml
+```
+
+You can also use `B0_ADMIN_NAME` and `B0_ADMIN_KEY`. These settings are applied when Box0 bootstraps the initial admin for a new database.
+
+If the server has already been started before, create or update a dedicated admin user explicitly:
+
+```bash
+b0 admin ensure --db ~/.b0/b0.db --name service-admin --key b0_service_admin_key
+```
+
+This command runs locally against the Box0 database. It can create a separate admin user for integrations without replacing your existing admin account.
+
 ### Frontend development
 
 The server now prefers `frontend/dist` when it exists, and falls back to the legacy `web/` dashboard otherwise.
@@ -157,6 +179,7 @@ b0 server                                    Start server
 b0 login <url> --key <key>                   Connect from another machine
 b0 status                                    Show connection info
 b0 invite <name>                             Create user (admin only)
+b0 admin ensure --name <name> --key <key>    Create/update a local admin user
 ```
 
 ```

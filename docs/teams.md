@@ -12,6 +12,12 @@ b0 invite alice
 
 This prints Alice's API key.
 
+If you need a dedicated admin account for another service on an existing Box0 server, run:
+
+```bash
+b0 admin ensure --db ~/.b0/b0.db --name service-admin --key b0_service_admin_key
+```
+
 ## Create a shared workspace
 
 ```bash

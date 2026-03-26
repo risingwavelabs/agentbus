@@ -21,6 +21,20 @@ pub struct User {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AdminEnsureStatus {
+    Created,
+    Updated,
+    Unchanged,
+}
+
+#[derive(Debug, Clone)]
+pub struct AdminEnsureResult {
+    pub status: AdminEnsureStatus,
+    pub user: User,
+    pub key: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workspace {
     pub name: String,
@@ -482,13 +496,25 @@ impl Database {
     // --- Users ---
 
     pub fn create_user(&self, name: &str, is_admin: bool) -> Result<(User, String)> {
+        self.create_user_with_key(name, is_admin, None)
+    }
+
+    pub fn create_user_with_key(
+        &self,
+        name: &str,
+        is_admin: bool,
+        key: Option<&str>,
+    ) -> Result<(User, String)> {
         let conn = self.conn.lock().unwrap();
         let id = format!("u-{}", &Uuid::new_v4().to_string()[..8]);
-        let key = format!("b0_{}", &Uuid::new_v4().to_string().replace('-', ""));
+        let key = key
+            .filter(|value| !value.trim().is_empty())
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("b0_{}", &Uuid::new_v4().to_string().replace('-', "")));
 
         conn.execute(
             "INSERT INTO users (id, name, key, is_admin) VALUES (?1, ?2, ?3, ?4)",
-            params![id, name, key, is_admin as i32],
+            params![id, name, key.as_str(), is_admin as i32],
         )?;
 
         // Auto-create personal workspace
@@ -567,8 +593,98 @@ impl Database {
         Ok(users)
     }
 
+    pub fn ensure_admin_user(&self, name: &str, key: &str) -> Result<AdminEnsureResult> {
+        let name = name.trim();
+        let key = key.trim();
+        anyhow::ensure!(!name.is_empty(), "admin name is required");
+        anyhow::ensure!(!key.is_empty(), "admin key is required");
+
+        let conn = self.conn.lock().unwrap();
+
+        let key_owner: Option<(String, String)> = conn
+            .query_row(
+                "SELECT id, name FROM users WHERE key = ?1",
+                params![key],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+
+        let existing_user: Option<User> = conn
+            .query_row(
+                "SELECT id, name, is_admin, created_at FROM users WHERE name = ?1 LIMIT 1",
+                params![name],
+                |row| {
+                    let ts: String = row.get(3)?;
+                    Ok(User {
+                        id: row.get(0)?,
+                        name: row.get(1)?,
+                        is_admin: row.get::<_, i32>(2)? != 0,
+                        created_at: Database::parse_ts(&ts),
+                    })
+                },
+            )
+            .optional()?;
+
+        if let Some((owner_id, owner_name)) = &key_owner {
+            if existing_user.as_ref().map(|user| &user.id) != Some(owner_id) {
+                anyhow::bail!(
+                    "admin key is already assigned to user \"{}\" ({})",
+                    owner_name,
+                    owner_id
+                );
+            }
+        }
+
+        if let Some(user) = existing_user {
+            let current_key: String = conn.query_row(
+                "SELECT key FROM users WHERE id = ?1",
+                params![user.id.as_str()],
+                |row| row.get(0),
+            )?;
+
+            if user.is_admin && current_key == key {
+                return Ok(AdminEnsureResult {
+                    status: AdminEnsureStatus::Unchanged,
+                    user,
+                    key: key.to_string(),
+                });
+            }
+
+            conn.execute(
+                "UPDATE users SET is_admin = 1, key = ?2 WHERE id = ?1",
+                params![user.id.as_str(), key],
+            )?;
+
+            return Ok(AdminEnsureResult {
+                status: AdminEnsureStatus::Updated,
+                user: User {
+                    is_admin: true,
+                    ..user
+                },
+                key: key.to_string(),
+            });
+        }
+
+        drop(conn);
+        let (user, key) = self.create_user_with_key(name, true, Some(key))?;
+        Ok(AdminEnsureResult {
+            status: AdminEnsureStatus::Created,
+            user,
+            key,
+        })
+    }
+
     /// Bootstrap: create admin user if none exists. Returns (user, key) if created.
     pub fn bootstrap_admin(&self) -> Result<Option<(User, String)>> {
+        self.bootstrap_admin_with(None, None)
+    }
+
+    /// Bootstrap: create admin user if none exists, optionally with explicit name/key.
+    pub fn bootstrap_admin_with(
+        &self,
+        name: Option<&str>,
+        key: Option<&str>,
+    ) -> Result<Option<(User, String)>> {
         let conn = self.conn.lock().unwrap();
         let has_admin: bool = conn
             .query_row("SELECT COUNT(*) FROM users WHERE is_admin = 1", [], |row| {
@@ -580,7 +696,11 @@ impl Database {
             return Ok(None);
         }
         drop(conn);
-        Ok(Some(self.create_user("admin", true)?))
+        Ok(Some(self.create_user_with_key(
+            name.unwrap_or("admin"),
+            true,
+            key,
+        )?))
     }
 
     // --- Workspaces ---
@@ -1461,9 +1581,10 @@ impl Database {
 
     pub fn list_cron_jobs(&self, workspace_name: &str) -> Result<Vec<CronJob>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            &format!("SELECT {} FROM cron_jobs WHERE workspace_name = ?1 ORDER BY created_at", Self::CRON_COLS),
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM cron_jobs WHERE workspace_name = ?1 ORDER BY created_at",
+            Self::CRON_COLS
+        ))?;
         let jobs = stmt
             .query_map(params![workspace_name], Self::parse_cron_row)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -1472,9 +1593,10 @@ impl Database {
 
     pub fn get_all_enabled_cron_jobs(&self) -> Result<Vec<CronJob>> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            &format!("SELECT {} FROM cron_jobs WHERE enabled = 1", Self::CRON_COLS),
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM cron_jobs WHERE enabled = 1",
+            Self::CRON_COLS
+        ))?;
         let jobs = stmt
             .query_map([], Self::parse_cron_row)?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -2224,11 +2346,7 @@ impl Database {
     }
 
     /// Fail all non-terminal step runs in a workflow run and mark the run as failed.
-    pub fn timeout_workflow_run(
-        &self,
-        workspace_name: &str,
-        run_id: &str,
-    ) -> Result<()> {
+    pub fn timeout_workflow_run(&self, workspace_name: &str, run_id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
@@ -2291,6 +2409,73 @@ mod tests {
     }
 
     #[test]
+    fn test_bootstrap_admin_with_explicit_credentials() {
+        let db = test_db();
+        let result = db
+            .bootstrap_admin_with(Some("service-admin"), Some("b0_service_admin_key"))
+            .unwrap();
+        assert!(result.is_some());
+        let (user, key) = result.unwrap();
+        assert!(user.is_admin);
+        assert_eq!(user.name, "service-admin");
+        assert_eq!(key, "b0_service_admin_key");
+
+        let authed = db.authenticate("b0_service_admin_key").unwrap();
+        assert!(authed.is_some());
+        assert_eq!(authed.unwrap().name, "service-admin");
+    }
+
+    #[test]
+    fn test_ensure_admin_user_creates_separate_admin() {
+        let db = test_db();
+        let result = db
+            .ensure_admin_user("service-admin", "b0_service_admin_key")
+            .unwrap();
+
+        assert_eq!(result.status, AdminEnsureStatus::Created);
+        assert!(result.user.is_admin);
+        assert_eq!(result.user.name, "service-admin");
+        assert_eq!(result.key, "b0_service_admin_key");
+
+        let workspaces = db.list_workspaces_for_user(&result.user.id).unwrap();
+        assert_eq!(workspaces.len(), 1);
+        assert_eq!(workspaces[0].name, "service-admin");
+    }
+
+    #[test]
+    fn test_ensure_admin_user_updates_existing_user() {
+        let db = test_db();
+        let (user, _key) = db.create_user("service-admin", false).unwrap();
+
+        let result = db
+            .ensure_admin_user("service-admin", "b0_service_admin_key")
+            .unwrap();
+
+        assert_eq!(result.status, AdminEnsureStatus::Updated);
+        assert_eq!(result.user.id, user.id);
+        assert!(result.user.is_admin);
+
+        let authed = db.authenticate("b0_service_admin_key").unwrap();
+        assert!(authed.is_some());
+        let authed = authed.unwrap();
+        assert_eq!(authed.id, user.id);
+        assert!(authed.is_admin);
+    }
+
+    #[test]
+    fn test_ensure_admin_user_rejects_key_owned_by_another_user() {
+        let db = test_db();
+        let (_alice, alice_key) = db.create_user("alice", false).unwrap();
+
+        let err = db
+            .ensure_admin_user("service-admin", &alice_key)
+            .unwrap_err()
+            .to_string();
+
+        assert!(err.contains("already assigned"));
+    }
+
+    #[test]
     fn test_create_user_gets_personal_workspace() {
         let db = test_db();
         let (user, _key) = db.create_user("alice", false).unwrap();
@@ -2343,8 +2528,19 @@ mod tests {
         let db = test_db();
         let (alice, _) = db.create_user("alice", false).unwrap();
 
-        db.register_agent("alice", "reviewer", "Code reviewer", "Review code.", "local", "auto", &alice.id, "background", None, None)
-            .unwrap();
+        db.register_agent(
+            "alice",
+            "reviewer",
+            "Code reviewer",
+            "Review code.",
+            "local",
+            "auto",
+            &alice.id,
+            "background",
+            None,
+            None,
+        )
+        .unwrap();
 
         let agents = db.list_agents("alice").unwrap();
         assert_eq!(agents.len(), 1);
@@ -2358,8 +2554,19 @@ mod tests {
         // But visible in shared workspace
         db.create_workspace("team", &alice.id).unwrap();
         db.add_workspace_member("team", &bob.id).unwrap();
-        db.register_agent("team", "shared-reviewer", "Shared reviewer", "Review.", "local", "auto", &alice.id, "background", None, None)
-            .unwrap();
+        db.register_agent(
+            "team",
+            "shared-reviewer",
+            "Shared reviewer",
+            "Review.",
+            "local",
+            "auto",
+            &alice.id,
+            "background",
+            None,
+            None,
+        )
+        .unwrap();
 
         let team_agents = db.list_agents("team").unwrap();
         assert_eq!(team_agents.len(), 1);
@@ -2391,8 +2598,19 @@ mod tests {
         db.create_workspace("team", &alice.id).unwrap();
         db.add_workspace_member("team", &bob.id).unwrap();
 
-        db.register_agent("team", "reviewer", "Reviewer", "Review.", "local", "auto", &alice.id, "background", None, None)
-            .unwrap();
+        db.register_agent(
+            "team",
+            "reviewer",
+            "Reviewer",
+            "Review.",
+            "local",
+            "auto",
+            &alice.id,
+            "background",
+            None,
+            None,
+        )
+        .unwrap();
 
         // Bob cannot remove Alice's agent
         let result = db.remove_agent("team", "reviewer", &bob.id);

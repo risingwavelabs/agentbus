@@ -108,9 +108,14 @@ impl BhClient {
         slack_channel: Option<&str>,
     ) -> Result<crate::db::Agent> {
         let mut body = serde_json::json!({"name": name, "description": description, "instructions": instructions, "machine_id": machine_id, "runtime": runtime, "kind": kind});
-        if let Some(url) = webhook_url { body["webhook_url"] = serde_json::json!(url); }
-        if let Some(ch) = slack_channel { body["slack_channel"] = serde_json::json!(ch); }
-        let req = self.client
+        if let Some(url) = webhook_url {
+            body["webhook_url"] = serde_json::json!(url);
+        }
+        if let Some(ch) = slack_channel {
+            body["slack_channel"] = serde_json::json!(ch);
+        }
+        let req = self
+            .client
             .post(format!("{}/workspaces/{}/agents", self.base_url, workspace))
             .json(&body);
         let resp = self.request(req).await?;
@@ -372,8 +377,11 @@ impl BhClient {
         end_date: Option<&str>,
     ) -> Result<crate::db::CronJob> {
         let mut body = serde_json::json!({"agent": agent, "schedule": schedule, "task": task});
-        if let Some(d) = end_date { body["end_date"] = serde_json::json!(d); }
-        let req = self.client
+        if let Some(d) = end_date {
+            body["end_date"] = serde_json::json!(d);
+        }
+        let req = self
+            .client
             .post(format!("{}/workspaces/{}/cron", self.base_url, workspace))
             .json(&body);
         let resp = self.request(req).await?;

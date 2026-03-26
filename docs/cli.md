@@ -14,6 +14,7 @@ b0 logout                                  Disconnect
 b0 reset                                   Clean slate (deletes DB, config, skills)
 b0 status                                  Show connection info and pending tasks
 b0 invite <name>                           Create user (admin only)
+b0 admin ensure --name <name> --key <key> Create/update a local admin user
 ```
 
 ## Agents

@@ -260,7 +260,8 @@ pub async fn run_local(state: SharedState, workspace_root: std::path::PathBuf) {
                             }
                             // Send Slack notification if configured
                             if let (Some(channel), Some(token)) = (&agent_slack, &slack_token) {
-                                fire_slack(token, channel, &agent_name, "failed", &e.to_string()).await;
+                                fire_slack(token, channel, &agent_name, "failed", &e.to_string())
+                                    .await;
                             }
                         }
                     }
@@ -663,19 +664,31 @@ fn parse_codex_jsonl(stdout: &str) -> anyhow::Result<RuntimeOutput> {
 
 async fn fire_slack(token: &str, channel: &str, agent: &str, status: &str, result: &str) {
     let client = reqwest::Client::new();
-    let text = format!("[Box0] *{}* {}: {}", agent, status, if result.len() > 500 { &result[..500] } else { result });
+    let text = format!(
+        "[Box0] *{}* {}: {}",
+        agent,
+        status,
+        if result.len() > 500 {
+            &result[..500]
+        } else {
+            result
+        }
+    );
     let body = serde_json::json!({
         "channel": channel,
         "text": text,
     });
-    match client.post("https://slack.com/api/chat.postMessage")
+    match client
+        .post("https://slack.com/api/chat.postMessage")
         .header("Authorization", format!("Bearer {}", token))
         .json(&body)
         .timeout(std::time::Duration::from_secs(10))
         .send()
         .await
     {
-        Ok(resp) => tracing::info!(agent, channel, code = %resp.status(), "Slack notification sent"),
+        Ok(resp) => {
+            tracing::info!(agent, channel, code = %resp.status(), "Slack notification sent")
+        }
         Err(e) => tracing::warn!(agent, channel, error = ?e, "Slack notification failed"),
     }
 }
@@ -687,7 +700,13 @@ async fn fire_webhook(url: &str, agent: &str, status: &str, result: &str) {
         "status": status,
         "result": result,
     });
-    match client.post(url).json(&body).timeout(std::time::Duration::from_secs(10)).send().await {
+    match client
+        .post(url)
+        .json(&body)
+        .timeout(std::time::Duration::from_secs(10))
+        .send()
+        .await
+    {
         Ok(resp) => tracing::info!(agent, status, code = %resp.status(), "Webhook sent"),
         Err(e) => tracing::warn!(agent, url, error = ?e, "Webhook failed"),
     }

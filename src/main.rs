@@ -1,4 +1,8 @@
-use box0::{client, config, daemon, server};
+use box0::{
+    client, config, daemon,
+    db::{AdminEnsureStatus, Database},
+    server,
+};
 use clap::{Parser, Subcommand};
 use std::io::IsTerminal;
 
@@ -102,6 +106,26 @@ enum Command {
     Status,
     /// Invite a user (admin only)
     Invite { name: String },
+    /// Manage local admin users
+    Admin {
+        #[command(subcommand)]
+        command: AdminCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum AdminCommand {
+    /// Create or update a local admin user with a fixed API key
+    Ensure {
+        #[arg(long)]
+        config: Option<String>,
+        #[arg(long)]
+        db: Option<String>,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        key: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -343,7 +367,13 @@ async fn main() {
     let cli = Cli::parse();
 
     match cli.command {
-        Command::Server { config: config_path, host, port, db, no_local } => {
+        Command::Server {
+            config: config_path,
+            host,
+            port,
+            db,
+            no_local,
+        } => {
             let mut cfg = config::ServerConfig::load(config_path.as_deref());
             if let Some(h) = host {
                 cfg.host = h;
@@ -375,6 +405,19 @@ async fn main() {
         Command::Reset => cmd_reset(),
         Command::Status => cmd_status().await,
         Command::Invite { name } => cmd_invite(&name).await,
+        Command::Admin { command } => match command {
+            AdminCommand::Ensure {
+                config,
+                db,
+                name,
+                key,
+            } => cmd_admin_ensure(
+                config.as_deref(),
+                db.as_deref(),
+                name.as_deref(),
+                key.as_deref(),
+            ),
+        },
 
         Command::Agent { command } => match command {
             AgentCommand::Add {
@@ -590,7 +633,11 @@ async fn main() {
         },
 
         Command::Machine { command } => match command {
-            MachineCommand::Join { server_url, name, key } => {
+            MachineCommand::Join {
+                server_url,
+                name,
+                key,
+            } => {
                 let cfg = config::CliConfig::load();
                 let url = match server_url {
                     Some(u) => u,
@@ -1107,6 +1154,87 @@ async fn cmd_invite(name: &str) {
             println!("User \"{}\" created (ID: {})", resp.name, resp.user_id);
             println!("  Key: {}", resp.key);
             println!("\nSave this key. It won't be shown again.");
+        }
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn cmd_admin_ensure(
+    config_path: Option<&str>,
+    db_override: Option<&str>,
+    name_override: Option<&str>,
+    key_override: Option<&str>,
+) {
+    let mut server_cfg = config::ServerConfig::load(config_path);
+    if let Some(db_path) = db_override {
+        server_cfg.db_path = db_path.to_string();
+    }
+
+    let resolved_name = name_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or(server_cfg.admin_name.clone())
+        .unwrap_or_else(|| {
+            eprintln!(
+                "Error: admin name is required. Pass --name or set admin_name / B0_ADMIN_NAME."
+            );
+            std::process::exit(1);
+        });
+
+    let resolved_key = key_override
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or(server_cfg.admin_key.clone())
+        .unwrap_or_else(|| {
+            eprintln!("Error: admin key is required. Pass --key or set admin_key / B0_ADMIN_KEY.");
+            std::process::exit(1);
+        });
+
+    if let Some(parent) = std::path::Path::new(&server_cfg.db_path).parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            eprintln!("Error: failed to create database directory: {}", e);
+            std::process::exit(1);
+        }
+    }
+
+    let db = match Database::new(&server_cfg.db_path) {
+        Ok(db) => db,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    match db.ensure_admin_user(&resolved_name, &resolved_key) {
+        Ok(result) => {
+            match result.status {
+                AdminEnsureStatus::Created => {
+                    println!(
+                        "Admin user \"{}\" created (ID: {}).",
+                        result.user.name, result.user.id
+                    )
+                }
+                AdminEnsureStatus::Updated => {
+                    println!(
+                        "Admin user \"{}\" updated (ID: {}).",
+                        result.user.name, result.user.id
+                    )
+                }
+                AdminEnsureStatus::Unchanged => {
+                    println!(
+                        "Admin user \"{}\" already matched the requested credentials (ID: {}).",
+                        result.user.name, result.user.id
+                    )
+                }
+            }
+            println!("  Key: {}", result.key);
+            println!();
+            println!("Use this key for other services. Existing CLI login was not changed.");
         }
         Err(e) => {
             eprintln!("Error: {}", e);
