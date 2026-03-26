@@ -66,12 +66,6 @@ Agent runs use a 30 minute default execution timeout. This prevents longer workf
 Install:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/risingwavelabs/box0/main/install.sh | sh
-```
-
-Or via npm:
-
-```bash
 npm install -g @box0/cli@latest
 ```
 
