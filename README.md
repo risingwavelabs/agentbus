@@ -50,9 +50,11 @@ Your AI (Claude Code or Codex) delegates work with `b0 delegate`, waits for resu
 
 ## Agent onboarding
 
+```bash
+npx skills add risingwavelabs/skills --skill b0
 ```
-Read https://box0.dev/skill.md and follow the instructions to install and configure Box0
-```
+
+Or read [SKILL.md](https://box0.dev/skill.md) directly.
 
 Your agent sends tasks to the Box0 server via `b0 delegate`. The server stores them in an inbox. A node daemon polls the inbox, spawns a separate Claude Code (or Codex) process for each worker, and writes the results back. Your agent calls `b0 wait` to collect the responses.
 
