@@ -1,4 +1,11 @@
-# Box0
+<p align="center">
+  <picture>
+    <source srcset=".github/box0-logo-dark.svg" width="400px" media="(prefers-color-scheme: dark)">
+    <img src=".github/box0-logo-light.svg" width="400px">
+  </picture>
+</p>
+
+<div align="center">
 
 __Open-Source Platform for Subagents and Agent Teams.__
 
@@ -7,6 +14,8 @@ __Open-Source Platform for Subagents and Agent Teams.__
 [![docs](https://img.shields.io/badge/docs-box0-blue)](https://github.com/risingwavelabs/box0/tree/main/docs)
 [![SKILL.md](https://img.shields.io/badge/SKILL.md-agent%20onboarding-black)](SKILL.md)
 [![Slack](https://img.shields.io/badge/Slack-join-4A154B?logo=slack)](https://go.risingwave.com/slack)
+
+</div>
 
 Box0 runs multiple AI agents in parallel across your machines. You create agents with different roles, delegate tasks to them, and collect results. It works with Claude Code and Codex. Single Rust binary, no dependencies.
 
