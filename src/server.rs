@@ -2567,7 +2567,16 @@ pub async fn run(config: ServerConfig, no_local: bool) {
                 }
                 Some((key, user.name.clone(), user.id.clone()))
             }
-            Ok(None) => None,
+            Ok(None) => {
+                // Not first start, but still update server_url in case port changed
+                let mut cli_cfg = crate::config::CliConfig::load();
+                let expected_url = format!("http://127.0.0.1:{}", config.port);
+                if cli_cfg.server_url != expected_url && cli_cfg.server_url.contains("127.0.0.1") {
+                    cli_cfg.server_url = expected_url;
+                    let _ = cli_cfg.save();
+                }
+                None
+            }
             Err(e) => {
                 tracing::error!("Failed to bootstrap admin: {}", e);
                 None
