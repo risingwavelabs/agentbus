@@ -36,9 +36,8 @@ Box0 is a multi-agent platform. It lets you run multiple AI agents in parallel a
 - Users have unique keys. Keys identify users, not workspaces.
 - Each user gets a personal workspace on creation.
 - Users can be in multiple workspaces. `--workspace` flag selects which workspace to operate in. Defaults to `default_workspace` in config.
-- `b0 login` auto-sets `default_workspace` from user's first workspace. No need for manual config.
 - Agents track `registered_by`. Only the creator can remove/update/stop their agents.
-- Admin user is created on first server start. Server auto-writes CLI config (no login needed on server machine).
+- Admin user is created on first server start. Server auto-writes CLI config and sets `default_workspace` automatically. No login command needed.
 
 ## Agent execution
 
