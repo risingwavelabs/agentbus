@@ -101,6 +101,7 @@ impl BhClient {
         kind: &str,
         webhook_url: Option<&str>,
         slack_channel: Option<&str>,
+        webhook_secret: Option<&str>,
     ) -> Result<crate::db::Agent> {
         let mut body = serde_json::json!({"name": name, "description": description, "instructions": instructions, "machine_id": machine_id, "runtime": runtime, "kind": kind});
         if let Some(url) = webhook_url {
@@ -108,6 +109,9 @@ impl BhClient {
         }
         if let Some(ch) = slack_channel {
             body["slack_channel"] = serde_json::json!(ch);
+        }
+        if let Some(secret) = webhook_secret {
+            body["webhook_secret"] = serde_json::json!(secret);
         }
         let req = self
             .client
@@ -347,53 +351,6 @@ impl BhClient {
                 self.base_url, workspace, cron_id
             ))
             .json(&serde_json::json!({"enabled": enabled}));
-        self.request(req).await?;
-        Ok(())
-    }
-
-    // --- Webhooks ---
-
-    pub async fn create_webhook(
-        &self,
-        workspace: &str,
-        agent: &str,
-        description: Option<&str>,
-    ) -> Result<String> {
-        let body = serde_json::json!({ "description": description });
-        let req = self
-            .client
-            .post(format!(
-                "{}/workspaces/{}/agents/{}/webhooks",
-                self.base_url, workspace, agent
-            ))
-            .json(&body);
-        let resp = self.request(req).await?;
-        let val: serde_json::Value = resp.json().await?;
-        val["id"]
-            .as_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| anyhow::anyhow!("no id in response"))
-    }
-
-    pub async fn list_webhooks(
-        &self,
-        workspace: &str,
-        agent: &str,
-    ) -> Result<Vec<serde_json::Value>> {
-        let req = self.client.get(format!(
-            "{}/workspaces/{}/agents/{}/webhooks",
-            self.base_url, workspace, agent
-        ));
-        let resp = self.request(req).await?;
-        let val: serde_json::Value = resp.json().await?;
-        Ok(val["webhooks"].as_array().cloned().unwrap_or_default())
-    }
-
-    pub async fn delete_webhook(&self, workspace: &str, id: &str) -> Result<()> {
-        let req = self.client.delete(format!(
-            "{}/workspaces/{}/webhooks/{}",
-            self.base_url, workspace, id
-        ));
         self.request(req).await?;
         Ok(())
     }

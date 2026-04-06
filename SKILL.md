@@ -13,7 +13,7 @@ allowed-tools:
 
 # Box0 (`b0`) Multi-Agent Platform
 
-Run AI agents in parallel. Delegate tasks, collect results, schedule cron jobs, trigger agents via webhook.
+Run AI agents in parallel. Delegate tasks, collect results, schedule cron jobs, trigger agents via deterministic webhook URLs.
 
 ## Setup
 
@@ -120,9 +120,7 @@ b0 cron add --every <interval> "<task>"                # schedule recurring task
 b0 cron add --agent <name> --every <interval> "<task>" # schedule with existing agent
 b0 cron ls                                             # list scheduled tasks
 b0 cron remove <id>                                    # remove a scheduled task
-b0 webhook add <agent>                                 # add webhook trigger to agent
-b0 webhook ls <agent>                                  # list webhook triggers for agent
-b0 webhook rm <id>                                     # remove a webhook trigger
+b0 agent info <name>                                   # show agent info including trigger URL
 ```
 
 ## How to write delegation prompts
@@ -190,25 +188,27 @@ If an agent fails, `b0 wait` reports it. Decide whether to:
 
 ## Webhook triggers
 
-Background agents can be triggered by external HTTP requests. Create a webhook for an agent:
+Every background agent automatically has a trigger URL based on its name. No setup required.
 
 ```bash
-b0 webhook add monitor
+b0 agent add --name monitor --instructions "Monitor the system."
 ```
 
-This returns a URL. Any HTTP POST to that URL will trigger the agent with the request body as the task prompt.
+This prints the trigger URL: `<server>/trigger/<workspace>/<agent-name>`. Any HTTP POST to that URL will trigger the agent with the request body as the task prompt.
 
-List webhooks for an agent:
+To see the trigger URL for an existing agent:
 
 ```bash
-b0 webhook ls monitor
+b0 agent info monitor
 ```
 
-Remove a webhook:
+To add HMAC signature verification, set a secret when creating the agent:
 
 ```bash
-b0 webhook rm <id>
+b0 agent add --name monitor --instructions "Monitor." --webhook-secret mysecret
 ```
+
+Then sign requests with `X-Hub-Signature-256: sha256=<hmac-sha256-of-body>`.
 
 ## Multi-turn conversations
 

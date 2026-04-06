@@ -55,7 +55,8 @@ Box0 is a multi-agent platform. It lets you run multiple AI agents in parallel a
 - Multi-turn: `b0 delegate --thread <id>` sends "answer" message, daemon resumes Claude session.
 - Windows compatibility: runtime detection uses `where` instead of `which`.
 - On completion, webhooks are fired and Slack notifications sent if configured on the agent.
-- Background agents support three trigger types: Manual (`b0 delegate`), Cron (`b0 cron add`), Webhook (`b0 webhook add`).
+- Background agents support three trigger types: Manual (`b0 delegate`), Cron (`b0 cron add`), Webhook (POST `/trigger/<workspace>/<agent>`).
+- Every agent has a deterministic trigger URL: `POST /trigger/<workspace>/<agent-name>` (no auth required). Optional HMAC secret stored as `webhook_secret` on the agent.
 - Agent kinds: `background` (persistent, triggered on demand) and `cron` (scheduled, auto-created by `b0 cron add`).
 
 ## CLI design
@@ -64,7 +65,7 @@ Box0 is a multi-agent platform. It lets you run multiple AI agents in parallel a
 - `b0 server` on first start auto-configures `~/.b0/config.toml` (server_url, api_key, default_workspace).
 - `b0 login` on remote machines auto-sets default_workspace from user's first workspace.
 - `b0 delegate` without `--thread` creates new conversation. With `--thread` continues existing one.
-- `b0 webhook add/ls/rm` manage webhook triggers on background agents.
+- `b0 agent add --webhook-secret <secret>` sets an HMAC secret for the agent's trigger URL. Trigger URL is printed on registration and visible in `b0 agent info`.
 - Skills are installed via `npx skills add risingwavelabs/skills --skill b0`, not via the b0 CLI.
 - Claude Code skill lives at `~/.claude/skills/b0/SKILL.md` (directory format, not plain file).
 - Codex skill lives in `~/.codex/AGENTS.md`.
@@ -90,12 +91,12 @@ Box0 is a multi-agent platform. It lets you run multiple AI agents in parallel a
 
 ## DB schema
 
-Tables: users, workspaces, workspace_members, agents, inbox_messages, machines, tasks, cron_jobs. Workspace name is used as tenant for isolation.
+Tables: users, workspaces, workspace_members, agents, inbox_messages, machines, tasks, cron_jobs, workflows, workflow_nodes, workflow_edges, workflow_runs, workflow_step_runs. Workspace name is used as tenant for isolation. Agents have a `webhook_secret` column for HMAC verification of trigger requests.
 
 ## Testing
 
-- Unit tests in `src/db.rs` (11 tests covering users, workspaces, agents, inbox, machines, ownership, tasks).
-- API integration tests in `tests/api.rs` (15 tests). Start a real Axum server per test with temp DB, test via HTTP client. No Claude/Codex needed. Run with `cargo test`.
+- Unit tests in `src/db.rs` (14 tests covering users, workspaces, agents, inbox, machines, ownership, tasks, workflows).
+- API integration tests in `tests/api.rs` (13 tests). Start a real Axum server per test with temp DB, test via HTTP client. No Claude/Codex needed. Run with `cargo test`.
 - E2e script in `tests/e2e.sh`. Requires Claude Code or Codex installed. Starts real server, runs CLI commands, verifies results. Run manually before releases.
 - CI runs `cargo test` on every push/PR via `.github/workflows/ci.yml`.
 - `b0 reset` deletes DB, config, and skills for clean slate.
