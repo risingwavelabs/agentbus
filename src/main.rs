@@ -522,9 +522,70 @@ async fn cmd_rm(name: &str) {
     }
 }
 
-async fn cmd_run(_name: &str, _task: &str, _timeout: f64) {
-    eprintln!("Not yet implemented.");
-    std::process::exit(1);
+async fn cmd_run(name: &str, task: &str, timeout: f64) {
+    let workspace = resolve_workspace();
+    let mut cfg = config::CliConfig::load();
+    let lead_id = cfg.lead_id();
+    let client = make_client(&cfg);
+
+    let thread_id = format!("thread-{}", &uuid::Uuid::new_v4().to_string()[..8]);
+
+    if let Err(e) = client
+        .send_message(
+            &workspace,
+            name,
+            &thread_id,
+            &lead_id,
+            "request",
+            Some(&serde_json::json!(task)),
+        )
+        .await
+    {
+        eprintln!("Error: {}", e);
+        std::process::exit(1);
+    }
+
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs_f64(timeout);
+    eprintln!("Running {} ...", name);
+
+    loop {
+        if std::time::Instant::now() > deadline {
+            eprintln!("Timed out after {}s.", timeout as u64);
+            std::process::exit(1);
+        }
+
+        let messages = client
+            .get_inbox(&workspace, &lead_id, Some("unread"), Some(2.0))
+            .await
+            .unwrap_or_default();
+
+        for msg in messages {
+            if msg.thread_id != thread_id {
+                continue;
+            }
+            let content = msg
+                .content
+                .as_ref()
+                .and_then(|v| v.as_str())
+                .unwrap_or("(no content)");
+            match msg.msg_type.as_str() {
+                "done" => {
+                    let _ = client.ack_message(&workspace, &msg.id).await;
+                    println!("{}", content);
+                    return;
+                }
+                "failed" => {
+                    let _ = client.ack_message(&workspace, &msg.id).await;
+                    eprintln!("Failed: {}", content);
+                    std::process::exit(1);
+                }
+                "started" | "question" => {
+                    let _ = client.ack_message(&workspace, &msg.id).await;
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 async fn cmd_logs(name: &str) {
