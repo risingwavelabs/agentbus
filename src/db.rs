@@ -231,6 +231,18 @@ pub struct CronJob {
     pub created_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Webhook {
+    pub id: String,
+    pub workspace_name: String,
+    pub agent_name: String,
+    pub description: Option<String>,
+    pub secret: Option<String>,
+    pub enabled: bool,
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+}
+
 impl Database {
     pub fn new(path: &str) -> Result<Self> {
         let conn =
@@ -394,6 +406,18 @@ impl Database {
             );
             CREATE INDEX IF NOT EXISTS idx_workflow_step_runs_run ON workflow_step_runs(workflow_run_id);
             CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_step_runs_thread_id ON workflow_step_runs(thread_id);
+
+            CREATE TABLE IF NOT EXISTS webhooks (
+                id TEXT NOT NULL PRIMARY KEY,
+                workspace_name TEXT NOT NULL,
+                agent_name TEXT NOT NULL,
+                description TEXT,
+                secret TEXT,
+                enabled INTEGER NOT NULL DEFAULT 1,
+                created_by TEXT NOT NULL,
+                created_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_webhooks_workspace_agent ON webhooks(workspace_name, agent_name);
             ",
         )?;
 
@@ -1361,6 +1385,83 @@ impl Database {
         conn.execute(
             "UPDATE cron_jobs SET last_run = ?1 WHERE id = ?2",
             params![now, cron_id],
+        )?;
+        Ok(())
+    }
+
+    // --- Webhooks ---
+
+    pub fn create_webhook(
+        &self,
+        workspace_name: &str,
+        agent_name: &str,
+        description: Option<&str>,
+        secret: Option<&str>,
+        created_by: &str,
+    ) -> Result<String> {
+        let conn = self.conn.lock().unwrap();
+        let id = format!("wh-{}", Uuid::new_v4());
+        conn.execute(
+            "INSERT INTO webhooks (id, workspace_name, agent_name, description, secret, enabled, created_by) VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6)",
+            params![id, workspace_name, agent_name, description, secret, created_by],
+        )?;
+        Ok(id)
+    }
+
+    pub fn list_webhooks(&self, workspace_name: &str, agent_name: &str) -> Result<Vec<Webhook>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, workspace_name, agent_name, description, secret, enabled, created_by, created_at \
+             FROM webhooks WHERE workspace_name = ?1 AND agent_name = ?2 ORDER BY created_at DESC",
+        )?;
+        let rows = stmt.query_map(params![workspace_name, agent_name], |row| {
+            Ok(Webhook {
+                id: row.get(0)?,
+                workspace_name: row.get(1)?,
+                agent_name: row.get(2)?,
+                description: row.get(3)?,
+                secret: row.get(4)?,
+                enabled: row.get::<_, i64>(5)? != 0,
+                created_by: row.get(6)?,
+                created_at: row
+                    .get::<_, String>(7)?
+                    .parse()
+                    .unwrap_or_else(|_| Utc::now()),
+            })
+        })?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    }
+
+    pub fn get_webhook(&self, id: &str) -> Result<Option<Webhook>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, workspace_name, agent_name, description, secret, enabled, created_by, created_at \
+             FROM webhooks WHERE id = ?1",
+        )?;
+        stmt.query_row(params![id], |row| {
+            Ok(Webhook {
+                id: row.get(0)?,
+                workspace_name: row.get(1)?,
+                agent_name: row.get(2)?,
+                description: row.get(3)?,
+                secret: row.get(4)?,
+                enabled: row.get::<_, i64>(5)? != 0,
+                created_by: row.get(6)?,
+                created_at: row
+                    .get::<_, String>(7)?
+                    .parse()
+                    .unwrap_or_else(|_| Utc::now()),
+            })
+        })
+        .optional()
+        .map_err(Into::into)
+    }
+
+    pub fn delete_webhook(&self, id: &str, workspace_name: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM webhooks WHERE id = ?1 AND workspace_name = ?2",
+            params![id, workspace_name],
         )?;
         Ok(())
     }
@@ -2565,5 +2666,39 @@ mod tests {
         assert_eq!(start.status, "done");
         assert_eq!(start.output.as_deref(), Some("Look at PR #1"));
         assert_eq!(review.status, "pending");
+    }
+
+    #[test]
+    fn test_webhooks() {
+        let db = test_db();
+        let (user, _) = db.create_user("alice", false).unwrap();
+        db.create_workspace("ws1", &user.id).unwrap();
+        db.register_agent("ws1", "agent1", "", "do stuff", "local", "auto", &user.id, "background", None, None).unwrap();
+
+        // Create webhook
+        let id = db.create_webhook("ws1", "agent1", Some("my hook"), None, &user.id).unwrap();
+        assert!(!id.is_empty());
+        assert!(id.starts_with("wh-"));
+
+        // List webhooks
+        let hooks = db.list_webhooks("ws1", "agent1").unwrap();
+        assert_eq!(hooks.len(), 1);
+        assert_eq!(hooks[0].agent_name, "agent1");
+        assert_eq!(hooks[0].description.as_deref(), Some("my hook"));
+        assert!(hooks[0].enabled);
+        assert!(hooks[0].secret.is_none());
+
+        // Get by id
+        let hook = db.get_webhook(&id).unwrap().unwrap();
+        assert_eq!(hook.id, id);
+        assert_eq!(hook.workspace_name, "ws1");
+
+        // Get non-existent
+        assert!(db.get_webhook("wh-does-not-exist").unwrap().is_none());
+
+        // Delete
+        db.delete_webhook(&id, "ws1").unwrap();
+        let hooks = db.list_webhooks("ws1", "agent1").unwrap();
+        assert_eq!(hooks.len(), 0);
     }
 }
