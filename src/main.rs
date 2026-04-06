@@ -1222,7 +1222,6 @@ async fn cmd_delegate(workspace: &str, agent: &str, task: &str, continue_thread:
                     workspace: workspace.to_string(),
                     task: task.to_string(),
                     created_at: chrono::Utc::now().to_rfc3339(),
-                    kind: "background".to_string(),
                 },
             );
             let _ = config::CliConfig::save_pending(&pending);
@@ -1514,7 +1513,6 @@ async fn cmd_reply(workspace: &str, thread_id: &str, message: &str) {
                     workspace: workspace.to_string(),
                     task: message.to_string(),
                     created_at: chrono::Utc::now().to_rfc3339(),
-                    kind: "background".to_string(),
                 },
             );
             let _ = config::CliConfig::save_pending(&pending);

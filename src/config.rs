@@ -265,10 +265,4 @@ pub struct PendingThread {
     pub workspace: String,
     pub task: String,
     pub created_at: String,
-    #[serde(default = "default_kind_background_str")]
-    pub kind: String,
-}
-
-fn default_kind_background_str() -> String {
-    "background".to_string()
 }
