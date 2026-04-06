@@ -7,3 +7,4 @@ npm/bin/b0.exe
 npm/node_modules/
 workers/
 .gstack/
+.worktrees
