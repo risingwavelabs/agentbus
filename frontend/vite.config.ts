@@ -7,18 +7,10 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     proxy: {
-      '/workspaces': {
-        target: backendUrl,
-        changeOrigin: true,
-      },
-      '/machines': {
-        target: backendUrl,
-        changeOrigin: true,
-      },
-      '/users': {
-        target: backendUrl,
-        changeOrigin: true,
-      },
+      '/workspaces': { target: backendUrl, changeOrigin: true },
+      '/users': { target: backendUrl, changeOrigin: true },
+      '/trigger': { target: backendUrl, changeOrigin: true },
+      '/health': { target: backendUrl, changeOrigin: true },
     },
   },
 })
