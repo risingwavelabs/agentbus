@@ -1,29 +1,22 @@
-// Storage keys
-const API_KEY_STORAGE = 'b0_api_key'
-const LEAD_ID_STORAGE = 'b0_lead_id'
+// In-memory API key (populated by init())
+let _apiKey = ''
 
-export function getStoredApiKey(): string | null {
-  return localStorage.getItem(API_KEY_STORAGE)
-}
-
-export function setStoredApiKey(key: string): void {
-  localStorage.setItem(API_KEY_STORAGE, key)
-}
-
-export function clearStoredApiKey(): void {
-  localStorage.removeItem(API_KEY_STORAGE)
+export async function init(): Promise<void> {
+  const res = await fetch('/api/config')
+  if (!res.ok) throw new Error('Could not connect to Box0 server.')
+  const data = await res.json() as { api_key: string }
+  _apiKey = data.api_key
 }
 
 export function getLeadId(): string {
-  let id = localStorage.getItem(LEAD_ID_STORAGE)
+  const LEAD_ID_KEY = 'b0_lead_id'
+  let id = localStorage.getItem(LEAD_ID_KEY)
   if (!id) {
     id = 'web-' + Math.random().toString(36).slice(2, 10)
-    localStorage.setItem(LEAD_ID_STORAGE, id)
+    localStorage.setItem(LEAD_ID_KEY, id)
   }
   return id
 }
-
-// ----- Types -----
 
 export interface Agent {
   name: string
@@ -64,12 +57,9 @@ export interface AgentThreadSummary {
   latest_at: string
 }
 
-// ----- HTTP client -----
-
 async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const key = getStoredApiKey()
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-  if (key) headers['x-api-key'] = key
+  if (_apiKey) headers['x-api-key'] = _apiKey
 
   const res = await fetch(path, {
     ...options,
@@ -83,8 +73,6 @@ async function apiFetch<T>(path: string, options: RequestInit = {}): Promise<T> 
 
   return res.json() as Promise<T>
 }
-
-// ----- API functions -----
 
 export async function getWorkspaces(): Promise<string[]> {
   const data = await apiFetch<{ workspaces: { name: string }[] }>('/workspaces')
