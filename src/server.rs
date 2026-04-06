@@ -282,11 +282,7 @@ async fn health_handler() -> Json<serde_json::Value> {
 
 async fn config_handler(
     State(state): State<SharedState>,
-    ConnectInfo(addr): ConnectInfo<std::net::SocketAddr>,
 ) -> impl IntoResponse {
-    if !addr.ip().is_loopback() {
-        return error_response(StatusCode::FORBIDDEN, "not available remotely");
-    }
     (StatusCode::OK, Json(serde_json::json!({ "api_key": state.admin_key }))).into_response()
 }
 
