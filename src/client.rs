@@ -102,8 +102,9 @@ impl BhClient {
         webhook_url: Option<&str>,
         slack_channel: Option<&str>,
         webhook_secret: Option<&str>,
+        webhook_enabled: bool,
     ) -> Result<crate::db::Agent> {
-        let mut body = serde_json::json!({"name": name, "description": description, "instructions": instructions, "machine_id": machine_id, "runtime": runtime, "kind": kind});
+        let mut body = serde_json::json!({"name": name, "description": description, "instructions": instructions, "machine_id": machine_id, "runtime": runtime, "kind": kind, "webhook_enabled": webhook_enabled});
         if let Some(url) = webhook_url {
             body["webhook_url"] = serde_json::json!(url);
         }

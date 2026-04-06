@@ -78,6 +78,8 @@ struct RegisterAgentRequest {
     slack_channel: Option<String>,
     #[serde(default)]
     webhook_secret: Option<String>,
+    #[serde(default)]
+    webhook_enabled: Option<bool>,
 }
 
 fn default_machine_id() -> String {
@@ -469,7 +471,7 @@ async fn register_agent_handler(
         req.webhook_url.as_deref(),
         req.slack_channel.as_deref(),
         req.webhook_secret.as_deref(),
-        false,
+        req.webhook_enabled.unwrap_or(false),
     ) {
         Ok(agent) => (
             StatusCode::CREATED,

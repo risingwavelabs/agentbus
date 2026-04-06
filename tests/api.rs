@@ -120,6 +120,7 @@ async fn test_agent_crud() {
             None,
             None,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -181,6 +182,7 @@ async fn test_agent_workspace_isolation() {
             None,
             None,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -202,6 +204,7 @@ async fn test_agent_workspace_isolation() {
             None,
             None,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -239,6 +242,7 @@ async fn test_agent_ownership_permission() {
             None,
             None,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -272,6 +276,7 @@ async fn test_inbox_roundtrip() {
             None,
             None,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -287,6 +292,7 @@ async fn test_inbox_roundtrip() {
             None,
             None,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -343,6 +349,7 @@ async fn test_started_message_flow() {
             None,
             None,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -358,6 +365,7 @@ async fn test_started_message_flow() {
             None,
             None,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -432,6 +440,7 @@ async fn test_cron_crud() {
             None,
             None,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -490,6 +499,7 @@ async fn test_cron_invalid_schedule() {
             None,
             None,
             None,
+            false,
         )
         .await
         .unwrap();
@@ -519,6 +529,7 @@ async fn test_webhook_trigger() {
             None,
             None,
             None,
+            false,
         )
         .await
         .unwrap();
