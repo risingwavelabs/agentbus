@@ -22,6 +22,7 @@ const expandedThreadId = ref<string | null>(null)
 const expandedMessages = ref<InboxMessage[]>([])
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
+let pollDeadline = 0
 
 function clearPoll() {
   if (pollTimer !== null) { clearInterval(pollTimer); pollTimer = null }
@@ -38,8 +39,15 @@ async function run() {
     const threadId = await runAgent(props.workspace, props.agent.name, taskInput.value.trim())
     taskInput.value = ''
     activeThreadId.value = threadId
+    pollDeadline = Date.now() + 360_000
     clearPoll()
     pollTimer = setInterval(async () => {
+      if (Date.now() > pollDeadline) {
+        clearPoll()
+        running.value = false
+        runError.value = 'Timed out waiting for agent response.'
+        return
+      }
       try {
         const msgs = await getThreadMessages(props.workspace, threadId)
         activeMessages.value = msgs

@@ -52,7 +52,7 @@ export interface InboxMessage {
   from: string
   to: string
   type: string
-  content: string | null
+  content: unknown
   status: string
   created_at: string
 }
